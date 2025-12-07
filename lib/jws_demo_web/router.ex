@@ -5,8 +5,19 @@ defmodule JwsDemoWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/api", JwsDemoWeb do
+  # Pipeline for JWS-authenticated API endpoints
+  # Note: :get_jwk option will be configured in endpoint or via config
+  # For now, this is a placeholder - will be wired up with JWKS cache in Commit 8
+  pipeline :api_authenticated do
+    plug :accepts, ["json"]
+    # VerifyJWSPlug will be added here when JWKS cache is ready (Commit 8)
+  end
+
+  scope "/api/v1", JwsDemoWeb do
     pipe_through :api
+
+    # Authorization endpoint (JWS verification will be added in integration tests)
+    post "/authorizations", AuthorizationController, :create
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
