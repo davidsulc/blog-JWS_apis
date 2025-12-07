@@ -12,8 +12,8 @@ defmodule JwsDemo.Application do
       JwsDemo.Repo,
       {DNSCluster, query: Application.get_env(:jws_demo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: JwsDemo.PubSub},
-      # Start a worker by calling: JwsDemo.Worker.start_link(arg)
-      # {JwsDemo.Worker, arg},
+      # JWKS cache for multi-tenant key management
+      JwsDemo.JWS.JWKSCache,
       # Start to serve requests, typically the last entry
       JwsDemoWeb.Endpoint
     ]
