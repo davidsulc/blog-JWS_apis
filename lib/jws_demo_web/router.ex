@@ -13,6 +13,13 @@ defmodule JwsDemoWeb.Router do
     # VerifyJWSPlug will be added here when JWKS cache is ready (Commit 8)
   end
 
+  # JWKS endpoint (standard location per RFC 8414)
+  scope "/.well-known", JwsDemoWeb do
+    pipe_through :api
+
+    get "/jwks.json", JWKSController, :index
+  end
+
   scope "/api/v1", JwsDemoWeb do
     pipe_through :api
 
