@@ -67,24 +67,65 @@ docker compose up --build
 # 5. Start Phoenix server
 ```
 
-### Running Commands
+### Running Commands Inside Containers
+
+Use `docker compose exec` to run commands in running containers:
 
 ```bash
 # Run mix commands
 docker compose exec app mix test
+docker compose exec app mix compile
+docker compose exec app mix deps.get
 
-# Access IEx console
+# Access interactive IEx console
 docker compose exec app iex -S mix
 
-# Run database migrations
+# Run database commands
 docker compose exec app mix ecto.migrate
-
-# Reset database
+docker compose exec app mix ecto.rollback
 docker compose exec app mix ecto.reset
+docker compose exec app mix run priv/repo/seeds.exs
 
-# Generate new keys
+# Access PostgreSQL directly
+docker compose exec postgres psql -U postgres -d jws_demo_dev
+
+# Generate keys
 docker compose exec app sh scripts/generate_keys.sh
+
+# Check Phoenix routes
+docker compose exec app mix phx.routes
+
+# Run specific tests
+docker compose exec app mix test test/jws_demo/jws/signer_test.exs
+docker compose exec app mix test --only integration
+
+# Get a shell in the container
+docker compose exec app sh
+
+# Run as root (if needed)
+docker compose exec --user root app sh
 ```
+
+**Alternative syntax** (if you prefer `docker` over `docker compose`):
+
+```bash
+# Same commands, different syntax
+docker exec jws_demo_app mix test
+docker exec -it jws_demo_app iex -S mix
+docker exec -it jws_demo_postgres psql -U postgres
+```
+
+**Running one-off commands** (without starting full stack):
+
+```bash
+# Run command in new container
+docker compose run --rm app mix test
+docker compose run --rm app mix ecto.migrate
+```
+
+**Difference:**
+- `docker compose exec` - Execute in **running** container (faster)
+- `docker compose run` - Create **new** container for command (isolated)
 
 ### Rebuilding After Changes
 

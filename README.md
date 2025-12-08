@@ -98,6 +98,28 @@ docker compose down
 
 Server runs at [http://localhost:4000](http://localhost:4000)
 
+**Common Docker Commands:**
+
+```bash
+# Run tests
+docker compose exec app mix test
+
+# Access IEx console
+docker compose exec app iex -S mix
+
+# Run migrations
+docker compose exec app mix ecto.migrate
+
+# Access PostgreSQL
+docker compose exec postgres psql -U postgres -d jws_demo_dev
+
+# Get a shell in the container
+docker compose exec app sh
+
+# View logs
+docker compose logs -f app
+```
+
 **See [DOCKER.md](DOCKER.md) for complete Docker documentation**, including:
 - Development vs production setup
 - Running tests in containers
