@@ -58,6 +58,8 @@ defmodule JwsDemo.JWS.JWKSCache do
   @default_ttl 900 # 15 minutes
   @stale_grace_period 86_400 # 24 hours
   @table_name :jwks_cache
+  # Demo mode: set to false in production to enable real JWKS fetching
+  @demo_mode Application.compile_env(:jws_demo, :jwks_demo_mode, true)
 
   # Client API
 
@@ -210,10 +212,10 @@ defmodule JwsDemo.JWS.JWKSCache do
     case get_partner_jwks_url(partner_id) do
       {:ok, jwks_url} ->
         case fetch_jwks(jwks_url) do
-          # NOTE: In demo mode, fetch_jwks always returns {:error, :demo_mode_no_real_fetch}
-          # In production, this case would handle successful JWKS fetch
-          # {:ok, jwks} ->
-          #   cache_jwks(partner_id, jwks)
+          {:ok, jwks} ->
+            # NOTE: In demo mode, fetch_jwks always returns error, so this branch is unreachable.
+            # In production, this would cache the successfully fetched JWKS.
+            cache_jwks(partner_id, jwks)
 
           {:error, reason} ->
             {:error, {:jwks_fetch_failed, reason}}
@@ -240,10 +242,26 @@ defmodule JwsDemo.JWS.JWKSCache do
 
   # Fetch JWKS from URL
   defp fetch_jwks(jwks_url) do
-    # In production: use HTTPoison to fetch JWKS
-    # For demo: return error (actual fetching would require real endpoints)
-    Logger.debug("Would fetch JWKS from: #{jwks_url}")
-    {:error, :demo_mode_no_real_fetch}
+    if @demo_mode do
+      # Demo mode: don't make real HTTP requests
+      Logger.debug("Demo mode: Would fetch JWKS from: #{jwks_url}")
+      {:error, :demo_mode_no_real_fetch}
+    else
+      # Production mode: fetch JWKS via HTTP
+      case HTTPoison.get(jwks_url, [], timeout: 5000, recv_timeout: 5000) do
+        {:ok, %{status_code: 200, body: body}} ->
+          case Jason.decode(body) do
+            {:ok, jwks} -> {:ok, jwks}
+            {:error, _} -> {:error, :invalid_json}
+          end
+
+        {:ok, %{status_code: code}} ->
+          {:error, {:http_status, code}}
+
+        {:error, error} ->
+          {:error, {:http_error, error}}
+      end
+    end
   rescue
     error -> {:error, {:http_error, error}}
   end
