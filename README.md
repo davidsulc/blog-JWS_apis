@@ -101,8 +101,8 @@ Server runs at [http://localhost:4000](http://localhost:4000)
 **Common Docker Commands:**
 
 ```bash
-# Run tests (use 'run' not 'exec' to avoid port conflicts)
-docker compose run --rm app mix test
+# Run tests (use 'run' with MIX_ENV=test to avoid port conflicts)
+docker compose run --rm -e MIX_ENV=test app mix test
 
 # Access IEx console
 docker compose exec app iex -S mix

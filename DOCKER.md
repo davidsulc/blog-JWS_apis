@@ -71,22 +71,34 @@ docker compose up --build
 
 #### Running Tests
 
-**Use `docker compose run` for tests** to avoid port conflicts:
+**Use `docker compose run` for tests** with `MIX_ENV=test`:
 
 ```bash
 # Run all tests (creates isolated container)
-docker compose run --rm app mix test
+docker compose run --rm -e MIX_ENV=test app mix test
 
 # Run specific test file
-docker compose run --rm app mix test test/jws_demo/jws/signer_test.exs
+docker compose run --rm -e MIX_ENV=test app mix test test/jws_demo/jws/signer_test.exs
 
 # Run tests with specific tag
-docker compose run --rm app mix test --only integration
+docker compose run --rm -e MIX_ENV=test app mix test --only integration
+```
+
+**Why `-e MIX_ENV=test` is required:**
+
+The docker-compose.yml sets `MIX_ENV=dev` by default. Tests require `MIX_ENV=test` to:
+- Use `Ecto.Adapters.SQL.Sandbox` pool (not `DBConnection.ConnectionPool`)
+- Load test configuration from `config/test.exs`
+- Disable Phoenix server (`server: false`)
+
+Without `-e MIX_ENV=test`, you'll get:
+```
+** (RuntimeError) cannot invoke sandbox operation with pool DBConnection.ConnectionPool
 ```
 
 **Why not `docker compose exec`?**
 
-The main app container runs `mix phx.server` which binds to port 4000. Running `docker compose exec app mix test` in the same container causes port conflicts because `PHX_SERVER=true` is set. Using `docker compose run` creates a fresh container without the running server.
+The main app container runs `mix phx.server` which binds to port 4000. Running tests in the same container causes port conflicts because `PHX_SERVER=true` is set. Using `docker compose run` creates a fresh container without the running server.
 
 #### Other Commands
 
@@ -141,8 +153,8 @@ docker exec -it jws_demo_postgres psql -U postgres
 **Examples by task:**
 
 ```bash
-# Tests - Use 'run' (isolated, avoids port conflicts)
-docker compose run --rm app mix test
+# Tests - Use 'run' with MIX_ENV=test (isolated, avoids port conflicts)
+docker compose run --rm -e MIX_ENV=test app mix test
 
 # Migrations - Use 'exec' (in running container)
 docker compose exec app mix ecto.migrate
@@ -327,11 +339,11 @@ This happens when you try to run tests using `docker compose exec app mix test` 
 - The `PHX_SERVER=true` environment variable is set
 - Running tests in the same container tries to start another server on the same port
 
-**Solution:** Use `docker compose run` instead of `docker compose exec`:
+**Solution:** Use `docker compose run` with `-e MIX_ENV=test`:
 
 ```bash
-# ✅ Correct - Creates isolated container for tests
-docker compose run --rm app mix test
+# ✅ Correct - Creates isolated container with test environment
+docker compose run --rm -e MIX_ENV=test app mix test
 
 # ❌ Wrong - Tries to run in container with server already running
 docker compose exec app mix test
@@ -339,9 +351,32 @@ docker compose exec app mix test
 
 **Why this works:**
 - `docker compose run` creates a **new, isolated container**
+- `-e MIX_ENV=test` overrides the default `MIX_ENV=dev`
 - No port conflicts because the new container doesn't have `PHX_SERVER=true`
 - Tests run in `MIX_ENV=test` with `server: false`
 - Container is automatically removed after tests (`--rm` flag)
+
+### SQL Sandbox Error When Running Tests
+
+**Error:** `cannot invoke sandbox operation with pool DBConnection.ConnectionPool`
+
+This happens when running tests without setting `MIX_ENV=test`.
+
+**Problem:**
+- docker-compose.yml sets `MIX_ENV=dev` by default
+- Dev uses `DBConnection.ConnectionPool`
+- Tests require `Ecto.Adapters.SQL.Sandbox` pool (configured in `config/test.exs`)
+- Without `MIX_ENV=test`, the dev config is used instead
+
+**Solution:** Always include `-e MIX_ENV=test` when running tests:
+
+```bash
+# ✅ Correct - Sets test environment
+docker compose run --rm -e MIX_ENV=test app mix test
+
+# ❌ Wrong - Uses dev environment
+docker compose run --rm app mix test
+```
 
 ### Database Connection Issues
 
