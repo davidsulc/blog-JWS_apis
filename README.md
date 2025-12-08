@@ -78,6 +78,33 @@ mix phx.server
 
 Server runs at [http://localhost:4000](http://localhost:4000)
 
+### Docker Quick Start
+
+Prefer Docker? Run the entire stack with one command:
+
+```bash
+# Start PostgreSQL + Phoenix app
+docker compose up
+
+# Or run in background
+docker compose up -d
+
+# View logs
+docker compose logs -f app
+
+# Stop containers
+docker compose down
+```
+
+Server runs at [http://localhost:4000](http://localhost:4000)
+
+**See [DOCKER.md](DOCKER.md) for complete Docker documentation**, including:
+- Development vs production setup
+- Running tests in containers
+- Database backups
+- Troubleshooting
+- CI/CD integration
+
 ## 📡 API Endpoints
 
 ### JWKS Endpoint

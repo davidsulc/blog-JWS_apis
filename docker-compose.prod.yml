@@ -1,0 +1,71 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jws_demo_postgres_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-jws_demo_prod}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jws_demo_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MIX_ENV: prod
+    container_name: jws_demo_app_prod
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database configuration
+      DATABASE_URL: "ecto://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-jws_demo_prod}"
+      POOL_SIZE: ${POOL_SIZE:-10}
+
+      # Phoenix configuration
+      PHX_SERVER: "true"
+      PHX_HOST: ${PHX_HOST:?PHX_HOST is required}
+      PORT: 4000
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}
+
+      # Mix environment
+      MIX_ENV: prod
+
+      # JWKS configuration
+      # Set to false in production to enable real JWKS fetching
+      JWKS_DEMO_MODE: ${JWKS_DEMO_MODE:-false}
+
+      # Elixir/Erlang
+      LANG: C.UTF-8
+    ports:
+      - "${APP_PORT:-4000}:4000"
+    networks:
+      - jws_demo_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/.well-known/jwks.json"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  jws_demo_network:
+    driver: bridge

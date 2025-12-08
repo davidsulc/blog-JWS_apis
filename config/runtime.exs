@@ -20,6 +20,14 @@ if System.get_env("PHX_SERVER") do
   config :jws_demo, JwsDemoWeb.Endpoint, server: true
 end
 
+# Docker development environment support
+# If DATABASE_URL is set in dev/test, use it (for Docker Compose)
+if config_env() in [:dev, :test] && System.get_env("DATABASE_URL") do
+  config :jws_demo, JwsDemo.Repo,
+    url: System.get_env("DATABASE_URL"),
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

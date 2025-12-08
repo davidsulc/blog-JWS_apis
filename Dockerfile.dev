@@ -1,0 +1,37 @@
+# Development Dockerfile
+# Optimized for fast rebuilds and development workflow
+
+FROM hexpm/elixir:1.18.0-erlang-27.2-alpine-3.21.0
+
+# Install build dependencies
+RUN apk add --no-cache \
+    build-base \
+    git \
+    openssl \
+    postgresql-client \
+    inotify-tools
+
+# Set working directory
+WORKDIR /app
+
+# Install hex and rebar
+RUN mix local.hex --force && \
+    mix local.rebar --force
+
+# Copy dependency files first (for layer caching)
+COPY mix.exs mix.lock ./
+
+# Install dependencies
+RUN mix deps.get
+
+# Copy application files
+COPY . .
+
+# Compile application
+RUN mix compile
+
+# Expose port
+EXPOSE 4000
+
+# Start the Phoenix server
+CMD ["mix", "phx.server"]

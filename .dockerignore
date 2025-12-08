@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+_build
+deps
+*.ez
+*.beam
+erl_crash.dump
+
+# Development
+.elixir_ls
+.vscode
+.idea
+
+# Documentation
+docs
+COMPLETION.md
+SESSION_SUMMARY.md
+
+# Test
+test
+cover
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp
+temp
