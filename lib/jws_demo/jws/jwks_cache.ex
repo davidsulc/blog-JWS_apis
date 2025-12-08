@@ -210,8 +210,10 @@ defmodule JwsDemo.JWS.JWKSCache do
     case get_partner_jwks_url(partner_id) do
       {:ok, jwks_url} ->
         case fetch_jwks(jwks_url) do
-          {:ok, jwks} ->
-            cache_jwks(partner_id, jwks)
+          # NOTE: In demo mode, fetch_jwks always returns {:error, :demo_mode_no_real_fetch}
+          # In production, this case would handle successful JWKS fetch
+          # {:ok, jwks} ->
+          #   cache_jwks(partner_id, jwks)
 
           {:error, reason} ->
             {:error, {:jwks_fetch_failed, reason}}

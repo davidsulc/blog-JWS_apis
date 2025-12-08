@@ -18,7 +18,6 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
 
   alias JwsDemo.JWS.{Signer, Audit}
   alias JwsDemo.Repo
-  alias JwsDemo.AuditLogs.AuditLog
   alias JwsDemo.Partners.Partner
 
   setup do
@@ -145,7 +144,7 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       # From signing to audit to independent verification.
     end
 
-    test "multiple authorizations are isolated in audit trail", %{conn: conn, jwk: jwk, partner: partner} do
+    test "multiple authorizations are isolated in audit trail", %{jwk: jwk, partner: partner} do
       # Create two separate authorizations
       payloads = [
         %{"instruction_id" => "txn_multi_001", "amount" => 50_000},
@@ -214,7 +213,7 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
   end
 
   describe "error scenarios" do
-    test "expired token is rejected", %{conn: conn, jwk: jwk, partner: partner} do
+    test "expired token is rejected", %{jwk: jwk} do
       # Create token that already expired
       now = System.system_time(:second)
 
@@ -240,7 +239,7 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       # old valid signatures, even if cryptographically sound.
     end
 
-    test "invalid signature is rejected", %{jwk: jwk, partner: partner} do
+    test "invalid signature is rejected", %{jwk: jwk} do
       # Create valid JWS then tamper with it
       payload = %{"instruction_id" => "txn_invalid", "amount" => 50_000}
       {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: "invalid-key")

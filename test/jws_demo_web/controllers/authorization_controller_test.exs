@@ -10,7 +10,7 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   end
 
   describe "POST /api/v1/authorizations - successful authorization" do
-    test "approves valid authorization request", %{conn: conn, jwk: jwk} do
+    test "approves valid authorization request", %{conn: conn} do
       # SETUP: Create verified authorization payload
       # In production, VerifyJWSPlug would verify and assign this
       verified_payload = %{
