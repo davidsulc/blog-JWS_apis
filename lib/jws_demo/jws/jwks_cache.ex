@@ -247,16 +247,17 @@ defmodule JwsDemo.JWS.JWKSCache do
       Logger.debug("Demo mode: Would fetch JWKS from: #{jwks_url}")
       {:error, :demo_mode_no_real_fetch}
     else
-      # Production mode: fetch JWKS via HTTP
-      case HTTPoison.get(jwks_url, [], timeout: 5000, recv_timeout: 5000) do
-        {:ok, %{status_code: 200, body: body}} ->
-          case Jason.decode(body) do
-            {:ok, jwks} -> {:ok, jwks}
-            {:error, _} -> {:error, :invalid_json}
-          end
+      # Production mode: fetch JWKS via HTTP using Req
+      case Req.get(jwks_url,
+             receive_timeout: 5000,
+             retry: :transient,
+             max_retries: 2
+           ) do
+        {:ok, %Req.Response{status: 200, body: jwks}} when is_map(jwks) ->
+          {:ok, jwks}
 
-        {:ok, %{status_code: code}} ->
-          {:error, {:http_status, code}}
+        {:ok, %Req.Response{status: status}} ->
+          {:error, {:http_status, status}}
 
         {:error, error} ->
           {:error, {:http_error, error}}

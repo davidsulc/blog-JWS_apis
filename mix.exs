@@ -49,8 +49,7 @@ defmodule JwsDemo.MixProject do
 
       # JWS/Crypto dependencies
       {:jose, "~> 1.11"},
-      {:uuid, "~> 1.1"},
-      {:httpoison, "~> 2.2"}
+      {:uuid, "~> 1.1"}
     ]
   end
 
