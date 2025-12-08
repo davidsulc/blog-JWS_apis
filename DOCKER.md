@@ -69,11 +69,31 @@ docker compose up --build
 
 ### Running Commands Inside Containers
 
-Use `docker compose exec` to run commands in running containers:
+#### Running Tests
+
+**Use `docker compose run` for tests** to avoid port conflicts:
+
+```bash
+# Run all tests (creates isolated container)
+docker compose run --rm app mix test
+
+# Run specific test file
+docker compose run --rm app mix test test/jws_demo/jws/signer_test.exs
+
+# Run tests with specific tag
+docker compose run --rm app mix test --only integration
+```
+
+**Why not `docker compose exec`?**
+
+The main app container runs `mix phx.server` which binds to port 4000. Running `docker compose exec app mix test` in the same container causes port conflicts because `PHX_SERVER=true` is set. Using `docker compose run` creates a fresh container without the running server.
+
+#### Other Commands
+
+Use `docker compose exec` for non-test commands in running containers:
 
 ```bash
 # Run mix commands
-docker compose exec app mix test
 docker compose exec app mix compile
 docker compose exec app mix deps.get
 
@@ -95,10 +115,6 @@ docker compose exec app sh scripts/generate_keys.sh
 # Check Phoenix routes
 docker compose exec app mix phx.routes
 
-# Run specific tests
-docker compose exec app mix test test/jws_demo/jws/signer_test.exs
-docker compose exec app mix test --only integration
-
 # Get a shell in the container
 docker compose exec app sh
 
@@ -110,22 +126,33 @@ docker compose exec --user root app sh
 
 ```bash
 # Same commands, different syntax
-docker exec jws_demo_app mix test
 docker exec -it jws_demo_app iex -S mix
 docker exec -it jws_demo_postgres psql -U postgres
 ```
 
-**Running one-off commands** (without starting full stack):
+**Key Differences:**
+
+| Command | Use Case | When to Use |
+|---------|----------|-------------|
+| `docker compose run --rm app` | Tests, one-off tasks | Creates isolated container, no port conflicts |
+| `docker compose exec app` | Interactive commands | Runs in existing container, faster |
+| `docker exec` | Direct container access | Alternative to docker compose exec |
+
+**Examples by task:**
 
 ```bash
-# Run command in new container
+# Tests - Use 'run' (isolated, avoids port conflicts)
 docker compose run --rm app mix test
-docker compose run --rm app mix ecto.migrate
-```
 
-**Difference:**
-- `docker compose exec` - Execute in **running** container (faster)
-- `docker compose run` - Create **new** container for command (isolated)
+# Migrations - Use 'exec' (in running container)
+docker compose exec app mix ecto.migrate
+
+# Shell - Use 'exec' (in running container)
+docker compose exec app sh
+
+# IEx - Use 'exec' (in running container)
+docker compose exec app iex -S mix
+```
 
 ### Rebuilding After Changes
 
@@ -288,6 +315,33 @@ sudo systemctl stop postgresql
 # or on macOS
 brew services stop postgresql
 ```
+
+### Port 4000 Conflict When Running Tests
+
+**Error:** `Running JwsDemoWeb.Endpoint with Bandit at http failed, port 4000 already in use`
+
+This happens when you try to run tests using `docker compose exec app mix test` while the server is already running.
+
+**Problem:**
+- The main container runs `mix phx.server` (binds to port 4000)
+- The `PHX_SERVER=true` environment variable is set
+- Running tests in the same container tries to start another server on the same port
+
+**Solution:** Use `docker compose run` instead of `docker compose exec`:
+
+```bash
+# ✅ Correct - Creates isolated container for tests
+docker compose run --rm app mix test
+
+# ❌ Wrong - Tries to run in container with server already running
+docker compose exec app mix test
+```
+
+**Why this works:**
+- `docker compose run` creates a **new, isolated container**
+- No port conflicts because the new container doesn't have `PHX_SERVER=true`
+- Tests run in `MIX_ENV=test` with `server: false`
+- Container is automatically removed after tests (`--rm` flag)
 
 ### Database Connection Issues
 
