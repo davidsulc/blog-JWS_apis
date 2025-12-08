@@ -216,10 +216,37 @@ Custom bridge network `jws_demo_network` allows:
 
 | Service | Internal Port | Host Port | Configurable |
 |---------|--------------|-----------|--------------|
-| PostgreSQL | 5432 | 5432 | No |
+| PostgreSQL | 5432 | 5433 | Yes (POSTGRES_PORT) |
 | Phoenix App | 4000 | 4000 | Yes (APP_PORT) |
 
+**Note:** PostgreSQL uses host port **5433** instead of the default 5432 to avoid conflicts with local PostgreSQL installations.
+
+The app container connects to PostgreSQL using the internal container port (5432) via Docker's internal network. The host port (5433) is only needed if you want to connect from your local machine using tools like `psql`.
+
 ## Troubleshooting
+
+### Port Already in Use
+
+**Error:** `Bind for 0.0.0.0:5432 failed: port is already allocated`
+
+This means you have PostgreSQL (or another service) already running on port 5432.
+
+**Solution:** The compose files now use port 5433 by default. If you still get conflicts:
+
+```bash
+# Check what's using the port
+sudo lsof -i :5433
+# or
+sudo netstat -tulpn | grep 5433
+
+# Option 1: Change to a different port
+# Edit docker-compose.yml and change "5433:5432" to "5434:5432"
+
+# Option 2: Stop your local PostgreSQL (if not needed)
+sudo systemctl stop postgresql
+# or on macOS
+brew services stop postgresql
+```
 
 ### Database Connection Issues
 
