@@ -20,12 +20,6 @@ config :jws_demo, JwsDemoWeb.Endpoint,
   secret_key_base: "9Vq8apg1YyoJxUz0EajM3cDIayFcS3f4IphxqRrXErpnHbUjrrgTvKKl5u/7eEW7",
   server: false
 
-# In test we don't send emails
-config :jws_demo, JwsDemo.Mailer, adapter: Swoosh.Adapters.Test
-
-# Disable swoosh api client as it is only required for production adapters
-config :swoosh, :api_client, false
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 
