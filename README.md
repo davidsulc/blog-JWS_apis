@@ -227,6 +227,34 @@ openssl ecparam -name prime256v1 -genkey -noout -out private_key.pem
 openssl ec -in private_key.pem -pubout -out public_key.pem
 ```
 
+## 🔄 Key Rotation
+
+Demonstrate zero-downtime key rotation:
+
+```bash
+# Run key rotation demo
+./scripts/rotate_keys_demo.sh
+```
+
+The script demonstrates the 3-phase rotation process:
+
+1. **Current State**: Single active key in JWKS
+2. **Transition Phase**: Add new key (both keys valid for 24-48 hours)
+3. **Final State**: Remove old key (only new key remains)
+
+**Production Rotation Best Practices:**
+
+- ✅ Rotate keys every 90 days
+- ✅ Maintain 24-48 hour grace period with both keys active
+- ✅ Monitor audit logs for old key usage before removal
+- ✅ Notify partners 1 week ahead of rotation
+- ✅ Test new key with subset of traffic first
+- ✅ Emergency rotation can be done in minutes if key compromised
+
+**Why Zero-Downtime Works:**
+
+During the transition phase, both keys are published in JWKS. Partners can continue using the old key while gradually adopting the new key. This eliminates coordination overhead and prevents service disruption.
+
 ## 🔍 Audit & Verification
 
 ### Generate Verification Package
