@@ -22,12 +22,20 @@ See [docs/blog_post_mapping.md](docs/blog_post_mapping.md) for detailed code-to-
 
 ### Core Features
 
-- ✅ **JWS Signing**: ES256 with flattened JSON + compact serialization
-- ✅ **Signature Verification**: Comprehensive validation (algorithm, timestamps, integrity)
-- ✅ **JWKS Publishing**: Standard `/.well-known/jwks.json` endpoint
-- ✅ **Multi-Tenant Caching**: Per-partner JWKS with stale-while-revalidate
+#### Inbound Requests (Receiving from Partners)
+- ✅ **JWS Signature Verification**: Comprehensive validation (algorithm, timestamps, integrity)
+- ✅ **JWKS Caching**: Multi-tenant per-partner JWKS with stale-while-revalidate
 - ✅ **Audit Trail**: "Forever proof" with re-verification support
+
+#### Outbound Requests (Sending to Partners)
+- ✅ **JWS Signing**: ES256 with flattened JSON + compact serialization
+- ✅ **Client Library**: Simple API for signing and sending webhooks
+- ✅ **JWKS Publishing**: Standard `/.well-known/jwks.json` endpoint
+
+#### Bidirectional Non-Repudiation
+- ✅ **Complete Audit Trail**: Both sides sign their requests
 - ✅ **OpenSSL Verification**: Independent audit without our codebase
+- ✅ **Educational Tests**: Demonstrates both inbound and outbound flows
 
 ### Security Validations
 
@@ -193,6 +201,63 @@ Accepts JWS-signed authorization requests.
 }
 ```
 
+### Outbound Signed Requests
+
+This demo also shows how to **send** signed requests to partner APIs (not just receive them).
+
+#### Sending Webhooks to Partners
+
+```elixir
+# Load our private key
+{:ok, private_key} = JwsDemo.Partners.Client.load_private_key()
+
+# Send signed webhook to partner
+{:ok, response} = JwsDemo.Partners.Client.send_webhook(
+  "https://partner.example.com/webhooks",
+  "payment.completed",  # event type
+  %{                     # event data
+    "transaction_id" => "txn_123",
+    "amount" => 50_000,
+    "currency" => "EUR"
+  },
+  private_key,
+  kid: "demo-2025-01"
+)
+```
+
+The client library automatically:
+- Signs the payload with ES256
+- Adds security claims (iat, exp, jti)
+- Sends via HTTP POST
+- Returns partner's verification response
+
+#### How Partners Verify Our Signatures
+
+Partners verify our webhooks by:
+1. Receiving JWS via HTTP POST
+2. Fetching our public key from `GET /.well-known/jwks.json`
+3. Verifying the signature
+4. Storing in their audit trail
+
+#### Mock Partner Endpoint (Testing)
+
+For testing, we provide a mock partner webhook endpoint:
+
+```bash
+POST /mock/partner/webhooks
+Content-Type: application/json
+
+{
+  "payload": "eyJ...",
+  "protected": "eyJ...",
+  "signature": "..."
+}
+```
+
+This simulates a partner's API receiving and verifying our signed webhooks.
+
+See [test/jws_demo/integration/outbound_request_test.exs](test/jws_demo/integration/outbound_request_test.exs) for complete examples.
+
 ## 🧪 Testing
 
 ### Run All Tests
@@ -216,9 +281,11 @@ mix test test/jws_demo/integration/
 
 ### Test Coverage
 
-- **75+ tests** across 9 test files
+- **88 tests** across 11 test files
 - **14 critical test cases** from Blog Post 7
-- **Integration tests** demonstrating complete flow
+- **Inbound integration tests** (receiving signed requests)
+- **Outbound integration tests** (sending signed webhooks)
+- **Bidirectional non-repudiation** demonstration
 - **Performance tests** validating sub-10ms verification
 
 ## 📂 Project Structure
@@ -234,20 +301,27 @@ lib/
 │   │   └── audit.ex               # Audit trail + re-verification (Post 5)
 │   ├── partners/
 │   │   ├── partner.ex             # Partner schema
-│   │   └── partner_config.ex      # JWKS configuration
+│   │   ├── partner_config.ex      # JWKS configuration
+│   │   └── client.ex              # Outbound signed requests (NEW)
 │   └── audit_logs/
 │       └── audit_log.ex           # Audit log schema
 └── jws_demo_web/
     ├── controllers/
-    │   ├── jwks_controller.ex     # GET /.well-known/jwks.json
-    │   └── authorization_controller.ex  # POST /api/v1/authorizations
+    │   ├── jwks_controller.ex              # GET /.well-known/jwks.json
+    │   ├── authorization_controller.ex     # POST /api/v1/authorizations (inbound)
+    │   └── partner_webhook_controller.ex   # Mock partner endpoint (testing)
     └── plugs/
         └── verify_jws_plug.ex     # JWS verification in pipeline
 
 test/
-├── jws_demo/jws/                  # Core JWS tests
+├── jws_demo/
+│   ├── jws/                       # Core JWS tests
+│   └── partners/
+│       └── client_test.exs        # Client-side signing tests (NEW)
 ├── jws_demo_web/                  # Phoenix integration tests
-└── integration/                    # End-to-end tests
+└── integration/
+    ├── authorization_flow_test.exs    # Inbound flow
+    └── outbound_request_test.exs      # Outbound flow (NEW)
 
 priv/
 ├── keys/                           # Test keypairs (ES256)

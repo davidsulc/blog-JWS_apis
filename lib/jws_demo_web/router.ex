@@ -27,6 +27,14 @@ defmodule JwsDemoWeb.Router do
     post "/authorizations", AuthorizationController, :create
   end
 
+  # Mock partner endpoints (for testing outbound signed requests)
+  # These simulate a partner's API receiving our signed webhooks
+  scope "/mock/partner", JwsDemoWeb do
+    pipe_through :api
+
+    post "/webhooks", PartnerWebhookController, :receive_webhook
+  end
+
   # Enable LiveDashboard in development
   if Application.compile_env(:jws_demo, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
