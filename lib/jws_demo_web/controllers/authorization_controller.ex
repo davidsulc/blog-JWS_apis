@@ -59,6 +59,8 @@ defmodule JwsDemoWeb.AuthorizationController do
   use JwsDemoWeb, :controller
   require Logger
 
+  alias JwsDemo.JWS.Audit
+
   @doc """
   Creates a new authorization from a verified JWS request.
 
@@ -68,13 +70,22 @@ defmodule JwsDemoWeb.AuthorizationController do
   Returns 200 with authorization result or 400 for invalid requests.
   """
   def create(conn, _params) do
-    # Extract verified payload from plug
+    # Extract verified payload and audit data from plug
     verified_payload = conn.assigns[:verified_authorization]
     partner_id = conn.assigns[:partner_id]
+    jws_original = conn.assigns[:jws_original]
+    partner_jwk = conn.assigns[:partner_jwk]
 
     case process_authorization(verified_payload, partner_id) do
       {:ok, result} ->
         Logger.info("Authorization approved: #{result.instruction_id}, partner: #{partner_id}")
+
+        # Log to audit trail for non-repudiation (if audit data available)
+        if jws_original && partner_jwk do
+          log_to_audit(verified_payload, partner_jwk, partner_id, jws_original)
+        else
+          Logger.debug("Skipping audit log: missing jws_original or partner_jwk in conn.assigns")
+        end
 
         conn
         |> put_status(:ok)
@@ -141,6 +152,37 @@ defmodule JwsDemoWeb.AuthorizationController do
   defp validate_amount(_) do
     {:error, {:invalid_amount, "Amount must be a number"}}
   end
+
+  # Log authorization to audit trail for non-repudiation
+  defp log_to_audit(verified_payload, partner_jwk, partner_id, jws_original) do
+    # Prepare metadata for audit logging
+    metadata = %{
+      partner_id: partner_id,
+      jws_signature: serialize_jws(jws_original),
+      verification_algorithm: "ES256",
+      verification_kid: Map.get(verified_payload, "kid")
+    }
+
+    case Audit.log_authorization(verified_payload, partner_jwk, metadata) do
+      {:ok, audit_log} ->
+        Logger.info("Audit log created: id=#{audit_log.id}, instruction=#{audit_log.instruction_id}")
+        :ok
+
+      {:error, changeset} ->
+        Logger.error("Failed to create audit log: #{inspect(changeset.errors)}")
+        :error
+    end
+  end
+
+  # Serialize JWS to string format for audit storage
+  defp serialize_jws(jws) when is_binary(jws), do: jws
+
+  defp serialize_jws(%{"payload" => payload, "protected" => protected, "signature" => signature}) do
+    # Flattened JSON - convert to compact format for storage
+    "#{protected}.#{payload}.#{signature}"
+  end
+
+  defp serialize_jws(jws), do: inspect(jws)
 
   # Format error messages
   defp format_error({:missing_fields, fields}) do

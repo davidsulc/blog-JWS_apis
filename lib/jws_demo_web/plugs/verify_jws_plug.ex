@@ -19,7 +19,11 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
   2. Parse JWS from request body (expects flattened JSON or compact format)
   3. Fetch partner's public key (from JWKS cache or config)
   4. Verify signature using JWS.Verifier
-  5. Assign verified payload to `conn.assigns.verified_authorization`
+  5. Assign verified payload and audit data to conn.assigns:
+     - `verified_authorization` - Verified payload claims
+     - `partner_id` - Partner identifier
+     - `jws_original` - Original JWS (for audit logging)
+     - `partner_jwk` - Partner's public key (for audit logging)
   6. If verification fails, return 401 with detailed error
 
   ## Configuration
@@ -79,10 +83,12 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
          {:ok, jws} <- extract_jws(conn),
          {:ok, jwk} <- get_partner_key(partner_id, opts),
          {:ok, verified_payload} <- verify_signature(jws, jwk, opts) do
-      # SUCCESS: Assign verified payload to conn
+      # SUCCESS: Assign verified payload and audit data to conn
       conn
       |> assign(:verified_authorization, verified_payload)
       |> assign(:partner_id, partner_id)
+      |> assign(:jws_original, jws)
+      |> assign(:partner_jwk, jwk)
     else
       {:error, reason} ->
         handle_verification_error(conn, reason)

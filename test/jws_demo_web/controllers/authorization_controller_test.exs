@@ -2,6 +2,8 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   use JwsDemoWeb.ConnCase, async: true
 
   alias JwsDemo.JWS.Signer
+  alias JwsDemo.AuditLogs.AuditLog
+  alias JwsDemo.Repo
 
   setup do
     # Generate test keypair
@@ -279,6 +281,58 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       # 3. Controller processes verified authorization
       # 4. Returns approval with proof of verification
       # This proves non-repudiation: partner cannot deny this authorization.
+    end
+
+    test "creates audit log for approved authorization", %{conn: conn, jwk: jwk} do
+      # SETUP: Create signed authorization
+      payload = %{
+        "instruction_id" => "txn_audit_test_123",
+        "amount" => 100_000,
+        "currency" => "EUR"
+      }
+
+      {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: "audit-test-key")
+      {:ok, verified} = JwsDemo.JWS.Verifier.verify(jws, jwk)
+
+      # Simulate VerifyJWSPlug assigns (including audit data)
+      conn =
+        conn
+        |> assign(:verified_authorization, verified)
+        |> assign(:partner_id, "partner_audit_test")
+        |> assign(:jws_original, jws)
+        |> assign(:partner_jwk, jwk)
+
+      # BEFORE: No audit logs exist for this instruction
+      assert Repo.get_by(AuditLog, instruction_id: "txn_audit_test_123") == nil
+
+      # REQUEST: Create authorization
+      conn = post(conn, ~p"/api/v1/authorizations")
+
+      # VERIFY: Authorization approved
+      assert %{"status" => "approved"} = json_response(conn, 200)
+
+      # VERIFY: Audit log was created
+      audit_log = Repo.get_by(AuditLog, instruction_id: "txn_audit_test_123")
+      assert audit_log != nil
+      assert audit_log.instruction_id == "txn_audit_test_123"
+      assert audit_log.verification_algorithm == "ES256"
+
+      # VERIFY: Audit log contains original JWS signature
+      assert is_binary(audit_log.jws_signature)
+      assert String.contains?(audit_log.jws_signature, ".")
+
+      # VERIFY: Audit log contains partner public key snapshot
+      assert is_map(audit_log.partner_public_key)
+      assert audit_log.partner_public_key["kty"] == "EC"
+
+      # VERIFY: Audit log contains verified payload
+      assert audit_log.payload["instruction_id"] == "txn_audit_test_123"
+      assert audit_log.payload["amount"] == 100_000
+
+      # LESSON: Every approved authorization creates an immutable audit log.
+      # This enables non-repudiation: we store the original JWS signature
+      # and partner's public key, allowing re-verification years later
+      # even if the partner rotates their keys.
     end
   end
 end
