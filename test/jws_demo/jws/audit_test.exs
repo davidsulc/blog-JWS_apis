@@ -45,7 +45,9 @@ defmodule JwsDemo.JWS.AuditTest do
           jws_signature: jws_string,
           partner_id: "partner_abc",
           verification_algorithm: "ES256",
-          verification_kid: "test-key"
+          verification_kid: "test-key",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # VERIFY: Audit log created
@@ -77,7 +79,9 @@ defmodule JwsDemo.JWS.AuditTest do
       {:ok, _audit_log} =
         Audit.log_authorization(verified_payload, jwk, %{
           jws_signature: jws_string,
-          partner_id: "partner_xyz"
+          partner_id: "partner_xyz",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # VERIFY: Can query by instruction_id
@@ -105,7 +109,9 @@ defmodule JwsDemo.JWS.AuditTest do
       {:ok, _audit_log} =
         Audit.log_authorization(verified_payload, jwk, %{
           jws_signature: jws_string,
-          partner_id: "partner_reverify"
+          partner_id: "partner_reverify",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # RE-VERIFY: Simulate re-verification months later
@@ -142,7 +148,9 @@ defmodule JwsDemo.JWS.AuditTest do
       {:ok, audit_log} =
         Audit.log_authorization(verified_payload, jwk, %{
           jws_signature: jws_string,
-          partner_id: "partner_tamper"
+          partner_id: "partner_tamper",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # TAMPER: Modify the signature part (last part of JWS)
@@ -182,7 +190,9 @@ defmodule JwsDemo.JWS.AuditTest do
         Audit.log_authorization(verified_payload, jwk, %{
           jws_signature: jws_string,
           partner_id: "partner_package",
-          verification_kid: "package-key"
+          verification_kid: "package-key",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # GENERATE: Create verification package
@@ -234,7 +244,9 @@ defmodule JwsDemo.JWS.AuditTest do
       {:ok, _audit_log} =
         Audit.log_authorization(verified_payload, jwk, %{
           jws_signature: jws_string,
-          partner_id: "partner_ind"
+          partner_id: "partner_ind",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # GENERATE: Package

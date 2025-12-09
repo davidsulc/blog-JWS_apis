@@ -98,7 +98,9 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
           jws_signature: jws_string,
           partner_id: partner.partner_id,
           verification_algorithm: "ES256",
-          verification_kid: "integration-key-2025"
+          verification_kid: "integration-key-2025",
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       IO.puts("✓ Audit log created")
@@ -160,7 +162,9 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
           {:ok, audit_log} =
             Audit.log_authorization(verified, jwk, %{
               jws_signature: jws_string,
-              partner_id: partner.partner_id
+              partner_id: partner.partner_id,
+              direction: "inbound",
+              uri: "/api/v1/authorizations"
             })
 
           audit_log.id
@@ -191,7 +195,9 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       {:ok, audit_log} =
         Audit.log_authorization(verified, jwk, %{
           jws_signature: jws_string,
-          partner_id: partner.partner_id
+          partner_id: partner.partner_id,
+          direction: "inbound",
+          uri: "/api/v1/authorizations"
         })
 
       # Tamper with the stored JWS (simulate database attack)

@@ -46,6 +46,7 @@ defmodule JwsDemo.Partners.Client do
 
   require Logger
   alias JwsDemo.JWS.Signer
+  alias JwsDemo.JWS.Audit
 
   @doc """
   Sends a signed request to a partner's API endpoint.
@@ -62,6 +63,8 @@ defmodule JwsDemo.Partners.Client do
     - `:format` - `:compact` or `:flattened` (default: `:flattened`)
     - `:headers` - Additional HTTP headers (default: [])
     - `:timeout` - Request timeout in ms (default: 10000)
+    - `:audit` - Enable audit logging (default: false)
+    - `:partner_id` - Partner identifier for audit trail (required if audit: true)
 
   ## Returns
 
@@ -102,19 +105,23 @@ defmodule JwsDemo.Partners.Client do
     format = Keyword.get(opts, :format, :flattened)
     additional_headers = Keyword.get(opts, :headers, [])
     timeout = Keyword.get(opts, :timeout, 10_000)
+    audit_enabled = Keyword.get(opts, :audit, false)
+    partner_id = Keyword.get(opts, :partner_id)
 
     # STEP 1: Sign the payload with our private key
     Logger.debug("Signing outbound request for #{url}")
 
-    signed_payload =
+    {signed_payload, signed_jws_string} =
       case format do
         :compact ->
           {:ok, jws} = Signer.sign_compact(payload, private_key, kid: kid)
-          jws
+          {jws, jws}
 
         :flattened ->
           {:ok, jws} = Signer.sign_flattened(payload, private_key, kid: kid)
-          jws
+          # Convert to compact for audit storage
+          jws_string = "#{jws["protected"]}.#{jws["payload"]}.#{jws["signature"]}"
+          {jws, jws_string}
       end
 
     # STEP 2: Prepare HTTP request
@@ -146,6 +153,19 @@ defmodule JwsDemo.Partners.Client do
          ) do
       {:ok, %Req.Response{status: status, body: response_body}} ->
         Logger.info("Signed request successful: status=#{status}")
+
+        # STEP 4: Create audit log if enabled
+        if audit_enabled and partner_id do
+          create_outbound_audit_log(
+            payload,
+            private_key,
+            signed_jws_string,
+            partner_id,
+            url,
+            status,
+            response_body
+          )
+        end
 
         {:ok,
          %{
@@ -241,4 +261,54 @@ defmodule JwsDemo.Partners.Client do
         {:error, {:key_load_failed, reason}}
     end
   end
+
+  # Private functions
+
+  # Create audit log for outbound request
+  defp create_outbound_audit_log(_payload, private_key, jws_signature, partner_id, url, status, response_body) do
+    # Get the verified payload (add automatic claims that were added during signing)
+    # We need to reconstruct this from the JWS to get iat, exp, jti
+    [_protected, payload_b64, _signature] = String.split(jws_signature, ".")
+    verified_payload = payload_b64 |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
+    # Extract instruction_id from payload
+    # For webhooks: data.transaction_id or data.subscription_id or data.invoice_id
+    # For direct requests: instruction_id at top level
+    instruction_id = extract_instruction_id(verified_payload)
+
+    # Add instruction_id to verified_payload for audit logging
+    verified_payload_with_id = Map.put(verified_payload, "instruction_id", instruction_id)
+
+    metadata = %{
+      partner_id: partner_id,
+      jws_signature: jws_signature,
+      verification_algorithm: "ES256",
+      verification_kid: verified_payload["kid"],
+      direction: "outbound",
+      uri: url,
+      response_status: status,
+      response_body: if(is_map(response_body), do: response_body, else: nil)
+    }
+
+    case Audit.log_authorization(verified_payload_with_id, private_key, metadata) do
+      {:ok, audit_log} ->
+        Logger.info("Outbound audit log created: id=#{audit_log.id}, uri=#{audit_log.uri}, status=#{audit_log.response_status}")
+        :ok
+
+      {:error, changeset} ->
+        Logger.error("Failed to create outbound audit log: #{inspect(changeset.errors)}")
+        :error
+    end
+  end
+
+  # Extract instruction ID from various payload structures
+  defp extract_instruction_id(%{"instruction_id" => id}) when is_binary(id), do: id
+
+  defp extract_instruction_id(%{"data" => %{"transaction_id" => id}}) when is_binary(id), do: id
+  defp extract_instruction_id(%{"data" => %{"subscription_id" => id}}) when is_binary(id), do: id
+  defp extract_instruction_id(%{"data" => %{"invoice_id" => id}}) when is_binary(id), do: id
+
+  defp extract_instruction_id(%{"jti" => jti}) when is_binary(jti), do: "jti_#{jti}"
+
+  defp extract_instruction_id(_), do: "unknown_#{UUID.uuid4()}"
 end

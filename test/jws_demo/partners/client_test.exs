@@ -17,7 +17,7 @@ defmodule JwsDemo.Partners.ClientTest do
   describe "send_signed_request/4 - flattened JSON format" do
     test "creates valid JWS signature in flattened format", %{
       private_key: private_key,
-      public_key: public_key
+      public_key: _public_key
     } do
       # SETUP: Create webhook payload
       # This demonstrates what we send to partners

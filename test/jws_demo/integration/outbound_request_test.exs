@@ -337,5 +337,90 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         # - Complete audit trail for regulatory compliance
       end
     end
+
+    @tag :skip_if_no_keys
+    test "creates audit log for outbound request", %{
+      private_key: private_key,
+      keys_exist: keys_exist
+    } do
+      if not keys_exist do
+        :ok
+      else
+        IO.puts("\n=== OUTBOUND AUDIT TRAIL ===\n")
+
+        webhook_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+
+        # BEFORE: Count existing outbound audit logs
+        import Ecto.Query
+        before_count = JwsDemo.Repo.one(
+          from a in JwsDemo.AuditLogs.AuditLog,
+          where: a.direction == "outbound",
+          select: count(a.id)
+        )
+
+        IO.puts("✓ Outbound audit logs before: #{before_count}")
+
+        # SEND: Webhook with audit enabled
+        {:ok, response} =
+          JwsDemo.Partners.Client.send_webhook(
+            webhook_url,
+            "payment.completed",
+            %{
+              "transaction_id" => "txn_audit_outbound_001",
+              "amount" => 100_000,
+              "currency" => "USD"
+            },
+            private_key,
+            kid: "demo-2025-01",
+            audit: true,
+            partner_id: "partner_outbound_test"
+          )
+
+        assert response.status == 200
+
+        IO.puts("✓ Webhook sent successfully")
+
+        # AFTER: Verify audit log was created
+        after_count = JwsDemo.Repo.one(
+          from a in JwsDemo.AuditLogs.AuditLog,
+          where: a.direction == "outbound",
+          select: count(a.id)
+        )
+
+        assert after_count == before_count + 1
+
+        IO.puts("✓ Outbound audit logs after: #{after_count}")
+
+        # VERIFY: Audit log contains correct data
+        # The transaction_id is now extracted and stored as instruction_id
+        audit_log = JwsDemo.Repo.one(
+          from a in JwsDemo.AuditLogs.AuditLog,
+          where: a.direction == "outbound" and a.instruction_id == "txn_audit_outbound_001",
+          order_by: [desc: a.inserted_at],
+          limit: 1
+        )
+
+        assert audit_log != nil
+        assert audit_log.direction == "outbound"
+        assert audit_log.uri == webhook_url
+        assert audit_log.response_status == 200
+        assert is_map(audit_log.response_body)
+        assert audit_log.response_body["status"] == "verified"
+
+        IO.puts("✓ Audit log created with:")
+        IO.puts("  - Direction: #{audit_log.direction}")
+        IO.puts("  - URI: #{audit_log.uri}")
+        IO.puts("  - Response Status: #{audit_log.response_status}")
+        IO.puts("  - Partner Response: #{audit_log.response_body["status"]}")
+
+        IO.puts("\n=== COMPLETE: Outbound audit trail verified ===\n")
+
+        # LESSON: Outbound audit logs prove:
+        # - We sent this specific webhook (original JWS stored)
+        # - Partner received and verified it (response status + body)
+        # - Complete bidirectional audit trail
+        # - Both parties have cryptographic proof
+      end
+    end
   end
 end

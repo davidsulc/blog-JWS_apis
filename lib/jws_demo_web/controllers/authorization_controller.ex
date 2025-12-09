@@ -82,7 +82,7 @@ defmodule JwsDemoWeb.AuthorizationController do
 
         # Log to audit trail for non-repudiation (if audit data available)
         if jws_original && partner_jwk do
-          log_to_audit(verified_payload, partner_jwk, partner_id, jws_original)
+          log_to_audit(verified_payload, partner_jwk, partner_id, jws_original, conn.request_path)
         else
           Logger.debug("Skipping audit log: missing jws_original or partner_jwk in conn.assigns")
         end
@@ -154,18 +154,20 @@ defmodule JwsDemoWeb.AuthorizationController do
   end
 
   # Log authorization to audit trail for non-repudiation
-  defp log_to_audit(verified_payload, partner_jwk, partner_id, jws_original) do
+  defp log_to_audit(verified_payload, partner_jwk, partner_id, jws_original, uri) do
     # Prepare metadata for audit logging
     metadata = %{
       partner_id: partner_id,
       jws_signature: serialize_jws(jws_original),
       verification_algorithm: "ES256",
-      verification_kid: Map.get(verified_payload, "kid")
+      verification_kid: Map.get(verified_payload, "kid"),
+      direction: "inbound",
+      uri: uri
     }
 
     case Audit.log_authorization(verified_payload, partner_jwk, metadata) do
       {:ok, audit_log} ->
-        Logger.info("Audit log created: id=#{audit_log.id}, instruction=#{audit_log.instruction_id}")
+        Logger.info("Audit log created: id=#{audit_log.id}, direction=#{audit_log.direction}, uri=#{audit_log.uri}")
         :ok
 
       {:error, changeset} ->

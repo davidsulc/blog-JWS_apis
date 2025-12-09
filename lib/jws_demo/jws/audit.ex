@@ -71,7 +71,7 @@ defmodule JwsDemo.JWS.Audit do
   alias JwsDemo.JWS.Verifier
 
   @doc """
-  Logs an authorization to the audit trail.
+  Logs an authorization to the audit trail (both inbound and outbound).
 
   ## Parameters
   - `verified_payload` - The verified payload from JWS.Verifier
@@ -79,8 +79,32 @@ defmodule JwsDemo.JWS.Audit do
   - `metadata` - Map containing:
     - `:jws_signature` (required) - Original JWS string
     - `:partner_id` (required) - Partner identifier
+    - `:direction` (required) - "inbound" or "outbound"
+    - `:uri` (required) - Endpoint URI
     - `:verification_algorithm` - Algorithm used (default: "ES256")
     - `:verification_kid` - Key ID used
+    - `:response_status` - HTTP status code (for outbound)
+    - `:response_body` - Response data (for outbound)
+
+  ## Examples
+
+  Inbound (receiving from partner):
+      Audit.log_authorization(verified_payload, partner_jwk, %{
+        jws_signature: original_jws,
+        partner_id: "partner_abc",
+        direction: "inbound",
+        uri: "/api/v1/authorizations"
+      })
+
+  Outbound (sending to partner):
+      Audit.log_authorization(verified_payload, our_private_key, %{
+        jws_signature: original_jws,
+        partner_id: "partner_xyz",
+        direction: "outbound",
+        uri: "https://partner.example.com/webhooks",
+        response_status: 200,
+        response_body: %{"status" => "received"}
+      })
 
   ## Returns
   - `{:ok, audit_log}` - Audit log record
@@ -122,7 +146,12 @@ defmodule JwsDemo.JWS.Audit do
       payload: verified_payload,
       verified_at: DateTime.utc_now(),
       verification_algorithm: Map.get(metadata, :verification_algorithm, "ES256"),
-      verification_kid: Map.get(metadata, :verification_kid)
+      verification_kid: Map.get(metadata, :verification_kid),
+      # Bidirectional audit trail fields
+      direction: Map.get(metadata, :direction, "inbound"),
+      uri: Map.get(metadata, :uri, ""),
+      response_status: Map.get(metadata, :response_status),
+      response_body: Map.get(metadata, :response_body)
     }
 
     %AuditLog{}
