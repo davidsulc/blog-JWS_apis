@@ -72,6 +72,9 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
 
   alias JwsDemo.JWS.Verifier
 
+  @allowed_algorithms ["ES256"]
+  @clock_skew_seconds 300
+
   @behaviour Plug
 
   @impl true
@@ -206,16 +209,12 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
   # Verify JWS signature
   defp verify_signature(jws, jwk, opts) do
     verifier_opts = [
-      allowed_algorithms: Keyword.get(opts, :allowed_algorithms, ["ES256"]),
-      clock_skew_seconds: Keyword.get(opts, :clock_skew_seconds, 300)
+      allowed_algorithms: Keyword.get(opts, :allowed_algorithms, @allowed_algorithms),
+      clock_skew_seconds: Keyword.get(opts, :clock_skew_seconds, @clock_skew_seconds)
     ]
 
-    case Verifier.verify(jws, jwk, verifier_opts) do
-      {:ok, verified_payload} ->
-        {:ok, verified_payload}
-
-      {:error, reason} ->
-        {:error, {:verification_failed, reason}}
+    with {:error, reason} <- Verifier.verify(jws, jwk, verifier_opts) do
+      {:error, {:verification_failed, reason}}
     end
   end
 
