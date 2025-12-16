@@ -5,12 +5,11 @@ defmodule JwsDemoWeb.Router do
     plug :accepts, ["json"]
   end
 
-  # Pipeline for JWS-authenticated API endpoints
-  # Note: :get_jwk option will be configured in endpoint or via config
-  # For now, this is a placeholder - will be wired up with JWKS cache in Commit 8
+  # Pipeline for JWS-authenticated API endpoints with signature verification
+  # Verifies JWS signatures using partner public keys fetched from JWKS cache
   pipeline :api_authenticated do
     plug :accepts, ["json"]
-    # VerifyJWSPlug will be added here when JWKS cache is ready (Commit 8)
+    plug JwsDemoWeb.VerifyJWSPlug, get_jwk: &JwsDemo.JWS.JWKSCache.get_key/2
   end
 
   # JWKS endpoint (standard location per RFC 8414)
@@ -21,9 +20,9 @@ defmodule JwsDemoWeb.Router do
   end
 
   scope "/api/v1", JwsDemoWeb do
-    pipe_through :api
+    pipe_through :api_authenticated
 
-    # Authorization endpoint (JWS verification will be added in integration tests)
+    # Authorization endpoint with JWS signature verification via VerifyJWSPlug
     post "/authorizations", AuthorizationController, :create
   end
 

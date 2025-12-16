@@ -14,31 +14,40 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
   This proves the complete non-repudiation system.
   """
 
-  use JwsDemoWeb.ConnCase, async: true
+  use JwsDemoWeb.ConnCase, async: false
 
   alias JwsDemo.JWS.{Signer, Audit}
   alias JwsDemo.Repo
   alias JwsDemo.Partners.Partner
 
+  # Note: async: false because we're populating global JWKS cache ETS table
+
   setup do
     # Generate test keypair
     jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
+    kid = "integration-key-2025"
 
     # Create test partner
     partner =
       %Partner{}
       |> Partner.changeset(%{
-        partner_id: "partner_integration_test",
+        partner_id: "partner_integration_test_#{:rand.uniform(1_000_000)}",
         name: "Integration Test Partner",
         active: true
       })
       |> Repo.insert!()
 
-    {:ok, jwk: jwk, partner: partner}
+    # Manually insert public key into JWKS cache for testing
+    now = System.system_time(:second)
+    ttl = 900
+    cache_key = {partner.partner_id, kid}
+    :ets.insert(:jwks_cache, {cache_key, jwk, now, ttl})
+
+    {:ok, jwk: jwk, partner: partner, kid: kid}
   end
 
   describe "complete authorization flow" do
-    test "sign → verify → process → audit → re-verify", %{conn: conn, jwk: jwk, partner: partner} do
+    test "sign → verify → process → audit → re-verify", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
       # STEP 1: Partner creates authorization payload
       payload = %{
         "instruction_id" => "txn_integration_001",
@@ -51,34 +60,23 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       IO.puts("\n=== STEP 1: Partner signs authorization ===")
 
       # STEP 2: Partner signs with JWS (flattened JSON)
-      {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: "integration-key-2025")
+      {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: kid)
 
       IO.puts("✓ JWS created with flattened JSON format")
       IO.puts("  - Protected header: #{String.slice(jws["protected"], 0, 40)}...")
       IO.puts("  - Payload: #{String.slice(jws["payload"], 0, 40)}...")
       IO.puts("  - Signature: #{String.slice(jws["signature"], 0, 40)}...")
 
-      # STEP 3: Verify signature (what VerifyJWSPlug does)
-      IO.puts("\n=== STEP 2: Server verifies signature ===")
-      {:ok, verified_payload} = JwsDemo.JWS.Verifier.verify(jws, jwk)
-
-      IO.puts("✓ Signature verified successfully")
-      IO.puts("  - instruction_id: #{verified_payload["instruction_id"]}")
-      IO.puts("  - amount: #{verified_payload["amount"]}")
-      IO.puts("  - exp: #{verified_payload["exp"]}")
-      IO.puts("  - jti: #{verified_payload["jti"]}")
-
-      # STEP 4: Simulate VerifyJWSPlug assigns
-      jws_string = "#{jws["protected"]}.#{jws["payload"]}.#{jws["signature"]}"
+      # STEP 3: POST to authorization endpoint (VerifyJWSPlug will verify)
+      IO.puts("\n=== STEP 2: Server verifies signature (via VerifyJWSPlug) ===")
 
       conn =
         conn
-        |> assign(:verified_authorization, verified_payload)
-        |> assign(:partner_id, partner.partner_id)
+        |> put_req_header("x-partner-id", partner.partner_id)
+        |> put_req_header("content-type", "application/json")
+        |> post(~p"/api/v1/authorizations", jws)
 
-      # STEP 5: POST to authorization endpoint
       IO.puts("\n=== STEP 3: Process authorization ===")
-      conn = post(conn, ~p"/api/v1/authorizations")
 
       # VERIFY: 200 response with approval
       assert response = json_response(conn, 200)
@@ -86,29 +84,24 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       assert response["instruction_id"] == "txn_integration_001"
       assert response["amount"] == 100_000
 
-      IO.puts("✓ Authorization approved")
+      IO.puts("✓ Signature verified and authorization approved")
       IO.puts("  - Status: #{response["status"]}")
       IO.puts("  - Instruction ID: #{response["instruction_id"]}")
+      IO.puts("  - JTI: #{response["jti"]}")
+      IO.puts("  - Exp: #{response["exp"]}")
 
-      # STEP 6: Store in audit trail
-      IO.puts("\n=== STEP 4: Store in audit trail ===")
+      # STEP 4: Verify audit trail was created (automatic via controller)
+      IO.puts("\n=== STEP 4: Verify audit trail ===")
 
-      {:ok, audit_log} =
-        Audit.log_authorization(verified_payload, jwk, %{
-          jws_signature: jws_string,
-          partner_id: partner.partner_id,
-          verification_algorithm: "ES256",
-          verification_kid: "integration-key-2025",
-          direction: "inbound",
-          uri: "/api/v1/authorizations"
-        })
+      audit_log = Repo.get_by(JwsDemo.AuditLogs.AuditLog, instruction_id: "txn_integration_001")
+      assert audit_log != nil
 
-      IO.puts("✓ Audit log created")
+      IO.puts("✓ Audit log created automatically")
       IO.puts("  - Audit ID: #{audit_log.id}")
       IO.puts("  - Original JWS stored: #{String.length(audit_log.jws_signature)} bytes")
       IO.puts("  - Partner key snapshot stored: ✓")
 
-      # STEP 7: Re-verify from audit log (simulate months later)
+      # STEP 5: Re-verify from audit log (simulate months later)
       IO.puts("\n=== STEP 5: Re-verify from audit trail ===")
       {:ok, reverified} = Audit.re_verify("txn_integration_001")
 
@@ -119,7 +112,7 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       IO.puts("  - Amount verified: #{reverified["amount"]}")
       IO.puts("  - Instruction ID: #{reverified["instruction_id"]}")
 
-      # STEP 8: Generate verification package
+      # STEP 6: Generate verification package
       IO.puts("\n=== STEP 6: Generate verification package ===")
       output_dir = System.tmp_dir!() |> Path.join("integration_test_#{:rand.uniform(1_000_000)}")
 
@@ -142,37 +135,36 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       IO.puts("\n=== COMPLETE: Full non-repudiation flow verified ===\n")
 
       # LESSON: This test demonstrates the complete lifecycle of a
-      # JWS-signed authorization with non-repudiation guarantees.
-      # From signing to audit to independent verification.
+      # JWS-signed authorization with non-repudiation guarantees:
+      # 1. Partner signs with JWS
+      # 2. VerifyJWSPlug verifies signature (automatic via pipeline)
+      # 3. Controller processes and creates audit log
+      # 4. Audit trail enables re-verification years later
+      # 5. Verification package enables independent audit
     end
 
-    test "multiple authorizations are isolated in audit trail", %{jwk: jwk, partner: partner} do
-      # Create two separate authorizations
+    test "multiple authorizations are isolated in audit trail", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
+      # Create two separate authorizations by posting to endpoint
       payloads = [
         %{"instruction_id" => "txn_multi_001", "amount" => 50_000},
         %{"instruction_id" => "txn_multi_002", "amount" => 75_000}
       ]
 
-      audit_ids =
+      responses =
         Enum.map(payloads, fn payload ->
-          {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: "multi-key")
-          {:ok, verified} = JwsDemo.JWS.Verifier.verify(jws, jwk)
-          jws_string = "#{jws["protected"]}.#{jws["payload"]}.#{jws["signature"]}"
+          {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: kid)
 
-          {:ok, audit_log} =
-            Audit.log_authorization(verified, jwk, %{
-              jws_signature: jws_string,
-              partner_id: partner.partner_id,
-              direction: "inbound",
-              uri: "/api/v1/authorizations"
-            })
-
-          audit_log.id
+          conn
+          |> recycle()
+          |> put_req_header("x-partner-id", partner.partner_id)
+          |> put_req_header("content-type", "application/json")
+          |> post(~p"/api/v1/authorizations", jws)
+          |> json_response(200)
         end)
 
-      # Verify both are stored separately
-      assert length(audit_ids) == 2
-      assert Enum.at(audit_ids, 0) != Enum.at(audit_ids, 1)
+      # Verify both were approved
+      assert length(responses) == 2
+      assert Enum.all?(responses, fn r -> r["status"] == "approved" end)
 
       # Verify we can query each independently
       {:ok, txn1} = Audit.re_verify("txn_multi_001")
@@ -185,23 +177,23 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       # for each authorization, enabling granular re-verification.
     end
 
-    test "tampered audit log is detected on re-verification", %{jwk: jwk, partner: partner} do
-      # Create and store authorization
+    test "tampered audit log is detected on re-verification", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
+      # Create authorization via endpoint (which creates audit log)
       payload = %{"instruction_id" => "txn_tamper_test", "amount" => 10_000}
-      {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: "tamper-key")
-      {:ok, verified} = JwsDemo.JWS.Verifier.verify(jws, jwk)
-      jws_string = "#{jws["protected"]}.#{jws["payload"]}.#{jws["signature"]}"
+      {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: kid)
 
-      {:ok, audit_log} =
-        Audit.log_authorization(verified, jwk, %{
-          jws_signature: jws_string,
-          partner_id: partner.partner_id,
-          direction: "inbound",
-          uri: "/api/v1/authorizations"
-        })
+      conn
+      |> put_req_header("x-partner-id", partner.partner_id)
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/api/v1/authorizations", jws)
+      |> json_response(200)
+
+      # Get the audit log that was created
+      audit_log = Repo.get_by(JwsDemo.AuditLogs.AuditLog, instruction_id: "txn_tamper_test")
+      assert audit_log != nil
 
       # Tamper with the stored JWS (simulate database attack)
-      parts = String.split(jws_string, ".")
+      parts = String.split(audit_log.jws_signature, ".")
       tampered_sig = "TAMPERED" <> String.slice(Enum.at(parts, 2), 8, 1000)
       tampered_jws = "#{Enum.at(parts, 0)}.#{Enum.at(parts, 1)}.#{tampered_sig}"
 

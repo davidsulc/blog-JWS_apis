@@ -33,19 +33,24 @@ defmodule JwsDemo.Partners.ClientTest do
       mock_url = "http://localhost:4000/mock/partner/webhooks"
 
       # ACT: Send signed request
-      # Note: This will fail with connection error since server isn't running
-      # We're testing the JWS creation, not the HTTP transport
+      # Note: This will get a 401 response because the test key isn't in the JWKS cache
+      # In production, partners would have our public key in their cache
       result = Client.send_signed_request(mock_url, payload, private_key, kid: "test-key-001")
 
-      # For this test, we expect connection error (server not running)
-      # But we can verify the JWS would be created correctly by testing the signature directly
-      assert {:error, _} = result
+      # Verify the request was sent successfully (HTTP 200 with 401 status in response body)
+      # The 401 is expected because the mock endpoint uses VerifyJWSPlug
+      # and test-key-001 isn't in the JWKS cache
+      assert {:ok, response} = result
+      assert response.status == 401
+      assert response.body["error"] == "signature_verification_failed" ||
+             response.body["error"] == "key_fetch_failed"
 
-      # LESSON: In real usage, the partner's server would be running and would:
-      # 1. Receive our JWS
-      # 2. Fetch our public key from /.well-known/jwks.json
-      # 3. Verify the signature
-      # 4. Process the verified webhook
+      # LESSON: Client successfully creates and sends the JWS request.
+      # The verification failure is expected in this test environment.
+      # In production:
+      # 1. Partner's JWKS cache would have our public key
+      # 2. Verification would succeed
+      # 3. Partner would process the verified webhook
     end
 
     test "signs payload with automatic claims (iat, exp, jti)", %{private_key: private_key} do

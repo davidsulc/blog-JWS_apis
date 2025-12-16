@@ -81,7 +81,8 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
   def call(conn, opts) do
     with {:ok, partner_id} <- extract_partner_id(conn),
          {:ok, jws} <- extract_jws(conn),
-         {:ok, jwk} <- get_partner_key(partner_id, opts),
+         {:ok, kid} <- extract_kid(jws),
+         {:ok, jwk} <- get_partner_key(partner_id, kid, opts),
          {:ok, verified_payload} <- verify_signature(jws, jwk, opts) do
       # SUCCESS: Assign verified payload and audit data to conn
       conn
@@ -128,15 +129,57 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
     end
   end
 
-  # Get partner's public key (JWK)
-  defp get_partner_key(partner_id, opts) do
+  # Extract kid (Key ID) from JWS protected header
+  defp extract_kid(jws) when is_map(jws) do
+    # Flattened JSON format
+    case Map.get(jws, "protected") do
+      nil ->
+        {:error, {:invalid_jws, "Missing 'protected' header in flattened JWS"}}
+
+      protected_b64 ->
+        decode_kid_from_header(protected_b64)
+    end
+  end
+
+  defp extract_kid(jws) when is_binary(jws) do
+    # Compact format: "header.payload.signature"
+    case String.split(jws, ".") do
+      [header_b64, _, _] ->
+        decode_kid_from_header(header_b64)
+
+      _ ->
+        {:error, {:invalid_jws, "Invalid compact JWS format"}}
+    end
+  end
+
+  defp decode_kid_from_header(header_b64) do
+    with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
+         {:ok, header} <- Jason.decode(header_json),
+         kid when is_binary(kid) <- Map.get(header, "kid") do
+      {:ok, kid}
+    else
+      nil ->
+        {:error, {:missing_kid, "JWS header must include 'kid' (Key ID)"}}
+
+      {:error, _} ->
+        {:error, {:invalid_jws, "Failed to decode JWS header"}}
+
+      _ ->
+        {:error, {:invalid_kid, "kid must be a string"}}
+    end
+  rescue
+    _ -> {:error, {:invalid_jws, "Failed to parse JWS header"}}
+  end
+
+  # Get partner's public key (JWK) using partner_id and kid
+  defp get_partner_key(partner_id, kid, opts) do
     case Keyword.get(opts, :get_jwk) do
       nil ->
         # No key provider configured - fail with helpful error
         {:error, {:no_key_provider, "Plug not configured with :get_jwk option"}}
 
-      get_jwk_fn when is_function(get_jwk_fn, 1) ->
-        case get_jwk_fn.(partner_id) do
+      get_jwk_fn when is_function(get_jwk_fn, 2) ->
+        case get_jwk_fn.(partner_id, kid) do
           {:ok, jwk} ->
             {:ok, jwk}
 
@@ -146,6 +189,9 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
           _ ->
             {:error, {:key_fetch_failed, :invalid_return_value}}
         end
+
+      _ ->
+        {:error, {:no_key_provider, ":get_jwk must be a function that takes (partner_id, kid)"}}
     end
   end
 

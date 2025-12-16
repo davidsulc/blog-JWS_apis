@@ -8,11 +8,11 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
     # Generate test keypair
     partner_jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
 
-    # Mock key provider function
+    # Mock key provider function (takes partner_id and kid)
     get_jwk_fn = fn
-      "partner_abc" -> {:ok, partner_jwk}
-      "unknown_partner" -> {:error, :partner_not_found}
-      _ -> {:error, :invalid_partner}
+      "partner_abc", _kid -> {:ok, partner_jwk}
+      "unknown_partner", _kid -> {:error, :partner_not_found}
+      _, _ -> {:error, :invalid_partner}
     end
 
     {:ok, partner_jwk: partner_jwk, get_jwk_fn: get_jwk_fn}
