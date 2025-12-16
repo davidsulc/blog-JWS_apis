@@ -22,8 +22,12 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
 
   # Note: async: false because we're populating global JWKS cache ETS table
 
-  # Helper to suppress IO output in tests
-  defp test_puts(_msg), do: :ok
+  # Helper to suppress IO output in tests by default
+  defp test_puts(msg) do
+    if System.get_env("TEST_VERBOSE") == "true" do
+      IO.puts(msg)
+    end
+  end
 
   setup do
     # Generate test keypair

@@ -1,0 +1,10 @@
+{
+  "amount": 100000,
+  "currency": "EUR",
+  "description": "Purchase Order #12345",
+  "exp": 1765908092,
+  "iat": 1765907792,
+  "instruction_id": "txn_integration_001",
+  "jti": "56502bc4-06f0-4445-bccf-6d36cd5d872d",
+  "merchant_id": "merchant_xyz"
+}

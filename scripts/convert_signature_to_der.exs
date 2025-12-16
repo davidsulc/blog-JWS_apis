@@ -78,6 +78,9 @@ end
 case System.argv() do
   [signature_b64url] ->
     try do
+      # Set stdout to latin1 encoding to prevent UTF-8 corruption
+      :io.setopts(:standard_io, encoding: :latin1)
+
       # Decode Base64URL to binary
       signature_raw = Base.url_decode64!(signature_b64url, padding: false)
 
