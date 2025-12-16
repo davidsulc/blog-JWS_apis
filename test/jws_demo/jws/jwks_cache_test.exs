@@ -1,6 +1,8 @@
 defmodule JwsDemo.JWS.JWKSCacheTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias JwsDemo.JWS.JWKSCache
 
   # Note: async: false because we're testing a global GenServer with ETS
@@ -71,14 +73,26 @@ defmodule JwsDemo.JWS.JWKSCacheTest do
       cache_key = {partner_id, kid}
       :ets.insert(:jwks_cache, {cache_key, jwk, cached_at, ttl})
 
-      # REQUEST: Get key (stale cache hit)
-      assert {:ok, cached_jwk} = JWKSCache.get_key(partner_id, kid)
+      # REQUEST: Get key (stale cache hit) - capture background refresh logs
+      log =
+        capture_log(fn ->
+          assert {:ok, cached_jwk} = JWKSCache.get_key(partner_id, kid)
 
-      # VERIFY: Returns stale value immediately
-      assert JOSE.JWK.to_map(jwk) == JOSE.JWK.to_map(cached_jwk)
+          # VERIFY: Returns stale value immediately
+          assert JOSE.JWK.to_map(jwk) == JOSE.JWK.to_map(cached_jwk)
+
+          # Wait briefly for background refresh to complete and log
+          Process.sleep(50)
+        end)
+
+      # VERIFY: Background refresh was triggered and logged failure
+      assert log =~ "JWKS cache refresh failed"
+      assert log =~ partner_id
+      assert log =~ "partner_not_found"
 
       # LESSON: Stale-while-revalidate pattern returns stale data immediately,
       # avoiding blocking on network request. Refresh happens in background.
+      # The background refresh failure is expected in demo mode.
     end
 
     test "too stale cache triggers immediate refresh" do
@@ -107,13 +121,20 @@ defmodule JwsDemo.JWS.JWKSCacheTest do
 
   describe "refresh behavior" do
     test "manual refresh triggers cache update" do
-      # REQUEST: Trigger manual refresh
-      assert :ok = JWKSCache.refresh("partner_manual")
+      # REQUEST: Trigger manual refresh - capture expected error log
+      log =
+        capture_log(fn ->
+          assert :ok = JWKSCache.refresh("partner_manual")
+          # Wait briefly for async refresh to complete
+          Process.sleep(50)
+        end)
 
-      # VERIFY: Refresh completes (fails in demo mode but doesn't crash)
-      # In production with real endpoints, this would update the cache
+      # VERIFY: Refresh was attempted and logged failure (expected in demo mode)
+      assert log =~ "JWKS cache refresh failed"
+      assert log =~ "partner_manual"
 
       # LESSON: Manual refresh useful for testing, debugging, or forced updates.
+      # In production with real endpoints, this would update the cache.
     end
 
     test "warm_cache preloads partners" do

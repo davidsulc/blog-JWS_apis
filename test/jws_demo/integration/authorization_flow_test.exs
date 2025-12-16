@@ -22,6 +22,9 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
 
   # Note: async: false because we're populating global JWKS cache ETS table
 
+  # Helper to suppress IO output in tests
+  defp test_puts(_msg), do: :ok
+
   setup do
     # Generate test keypair
     jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
@@ -62,18 +65,18 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
         "description" => "Purchase Order #12345"
       }
 
-      IO.puts("\n=== STEP 1: Partner signs authorization ===")
+      test_puts("\n=== STEP 1: Partner signs authorization ===")
 
       # STEP 2: Partner signs with JWS (flattened JSON)
       {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: kid)
 
-      IO.puts("✓ JWS created with flattened JSON format")
-      IO.puts("  - Protected header: #{String.slice(jws["protected"], 0, 40)}...")
-      IO.puts("  - Payload: #{String.slice(jws["payload"], 0, 40)}...")
-      IO.puts("  - Signature: #{String.slice(jws["signature"], 0, 40)}...")
+      test_puts("✓ JWS created with flattened JSON format")
+      test_puts("  - Protected header: #{String.slice(jws["protected"], 0, 40)}...")
+      test_puts("  - Payload: #{String.slice(jws["payload"], 0, 40)}...")
+      test_puts("  - Signature: #{String.slice(jws["signature"], 0, 40)}...")
 
       # STEP 3: POST to authorization endpoint (VerifyJWSPlug will verify)
-      IO.puts("\n=== STEP 2: Server verifies signature (via VerifyJWSPlug) ===")
+      test_puts("\n=== STEP 2: Server verifies signature (via VerifyJWSPlug) ===")
 
       conn =
         conn
@@ -81,7 +84,7 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
         |> put_req_header("content-type", "application/json")
         |> post(~p"/api/v1/authorizations", jws)
 
-      IO.puts("\n=== STEP 3: Process authorization ===")
+      test_puts("\n=== STEP 3: Process authorization ===")
 
       # VERIFY: 200 response with approval
       assert response = json_response(conn, 200)
@@ -89,36 +92,36 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       assert response["instruction_id"] == "txn_integration_001"
       assert response["amount"] == 100_000
 
-      IO.puts("✓ Signature verified and authorization approved")
-      IO.puts("  - Status: #{response["status"]}")
-      IO.puts("  - Instruction ID: #{response["instruction_id"]}")
-      IO.puts("  - JTI: #{response["jti"]}")
-      IO.puts("  - Exp: #{response["exp"]}")
+      test_puts("✓ Signature verified and authorization approved")
+      test_puts("  - Status: #{response["status"]}")
+      test_puts("  - Instruction ID: #{response["instruction_id"]}")
+      test_puts("  - JTI: #{response["jti"]}")
+      test_puts("  - Exp: #{response["exp"]}")
 
       # STEP 4: Verify audit trail was created (automatic via controller)
-      IO.puts("\n=== STEP 4: Verify audit trail ===")
+      test_puts("\n=== STEP 4: Verify audit trail ===")
 
       audit_log = Repo.get_by(JwsDemo.AuditLogs.AuditLog, instruction_id: "txn_integration_001")
       assert audit_log != nil
 
-      IO.puts("✓ Audit log created automatically")
-      IO.puts("  - Audit ID: #{audit_log.id}")
-      IO.puts("  - Original JWS stored: #{String.length(audit_log.jws_signature)} bytes")
-      IO.puts("  - Partner key snapshot stored: ✓")
+      test_puts("✓ Audit log created automatically")
+      test_puts("  - Audit ID: #{audit_log.id}")
+      test_puts("  - Original JWS stored: #{String.length(audit_log.jws_signature)} bytes")
+      test_puts("  - Partner key snapshot stored: ✓")
 
       # STEP 5: Re-verify from audit log (simulate months later)
-      IO.puts("\n=== STEP 5: Re-verify from audit trail ===")
+      test_puts("\n=== STEP 5: Re-verify from audit trail ===")
       {:ok, reverified} = Audit.re_verify("txn_integration_001")
 
       assert reverified["amount"] == 100_000
       assert reverified["instruction_id"] == "txn_integration_001"
 
-      IO.puts("✓ Re-verification successful (proves non-repudiation)")
-      IO.puts("  - Amount verified: #{reverified["amount"]}")
-      IO.puts("  - Instruction ID: #{reverified["instruction_id"]}")
+      test_puts("✓ Re-verification successful (proves non-repudiation)")
+      test_puts("  - Amount verified: #{reverified["amount"]}")
+      test_puts("  - Instruction ID: #{reverified["instruction_id"]}")
 
       # STEP 6: Generate verification package
-      IO.puts("\n=== STEP 6: Generate verification package ===")
+      test_puts("\n=== STEP 6: Generate verification package ===")
       output_dir = System.tmp_dir!() |> Path.join("integration_test_#{:rand.uniform(1_000_000)}")
 
       assert :ok = Audit.generate_verification_package("txn_integration_001", output_dir)
@@ -130,17 +133,17 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       assert File.exists?(Path.join(output_dir, "payload_decoded.json"))
       assert File.exists?(Path.join(output_dir, "VERIFICATION.md"))
 
-      IO.puts("✓ Verification package generated")
-      IO.puts("  - Location: #{output_dir}")
+      test_puts("✓ Verification package generated")
+      test_puts("  - Location: #{output_dir}")
 
-      IO.puts(
+      test_puts(
         "  - Files: jws_original.txt, public_key.pem, public_key.jwk, payload_decoded.json, VERIFICATION.md"
       )
 
       # Cleanup
       File.rm_rf!(output_dir)
 
-      IO.puts("\n=== COMPLETE: Full non-repudiation flow verified ===\n")
+      test_puts("\n=== COMPLETE: Full non-repudiation flow verified ===\n")
 
       # LESSON: This test demonstrates the complete lifecycle of a
       # JWS-signed authorization with non-repudiation guarantees:

@@ -5,6 +5,9 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
   @moduletag :integration
 
+  # Helper to suppress IO output in tests
+  defp test_puts(_msg), do: :ok
+
   setup do
     # Use the demo keypair for integration tests
     # In production, this would be loaded from secure storage
@@ -38,10 +41,10 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         # Skip test if keys don't exist
         :ok
       else
-        IO.puts("\n=== OUTBOUND FLOW: Sending Signed Webhook to Partner ===\n")
+        test_puts("\n=== OUTBOUND FLOW: Sending Signed Webhook to Partner ===\n")
 
         # STEP 1: Prepare webhook payload
-        IO.puts("=== STEP 1: Prepare webhook payload ===")
+        test_puts("=== STEP 1: Prepare webhook payload ===")
 
         payload = %{
           "event" => "payment.completed",
@@ -51,13 +54,13 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
           "merchant_id" => "merch_xyz"
         }
 
-        IO.puts("✓ Webhook payload created")
-        IO.puts("  - Event: #{payload["event"]}")
-        IO.puts("  - Transaction: #{payload["transaction_id"]}")
-        IO.puts("  - Amount: #{payload["amount"]} #{payload["currency"]}")
+        test_puts("✓ Webhook payload created")
+        test_puts("  - Event: #{payload["event"]}")
+        test_puts("  - Transaction: #{payload["transaction_id"]}")
+        test_puts("  - Amount: #{payload["amount"]} #{payload["currency"]}")
 
         # STEP 2: Sign with our private key
-        IO.puts("\n=== STEP 2: Sign webhook with our private key ===")
+        test_puts("\n=== STEP 2: Sign webhook with our private key ===")
 
         mock_partner_url =
           "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
@@ -71,53 +74,53 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
             format: :flattened
           )
 
-        IO.puts("✓ Webhook signed and sent")
-        IO.puts("  - Format: flattened JSON")
-        IO.puts("  - Key ID: demo-2025-01")
-        IO.puts("  - URL: #{mock_partner_url}")
+        test_puts("✓ Webhook signed and sent")
+        test_puts("  - Format: flattened JSON")
+        test_puts("  - Key ID: demo-2025-01")
+        test_puts("  - URL: #{mock_partner_url}")
 
         # STEP 3: Partner receives and verifies
-        IO.puts("\n=== STEP 3: Partner receives and verifies signature ===")
+        test_puts("\n=== STEP 3: Partner receives and verifies signature ===")
 
         assert response.status == 200
         assert response.body["status"] == "verified"
 
-        IO.puts("✓ Partner verified our signature successfully")
-        IO.puts("  - Status: #{response.body["status"]}")
-        IO.puts("  - Event: #{response.body["event"]}")
-        IO.puts("  - Verified at: #{response.body["verified_at"]}")
+        test_puts("✓ Partner verified our signature successfully")
+        test_puts("  - Status: #{response.body["status"]}")
+        test_puts("  - Event: #{response.body["event"]}")
+        test_puts("  - Verified at: #{response.body["verified_at"]}")
 
         # STEP 4: Verify payload integrity
-        IO.puts("\n=== STEP 4: Verify payload integrity ===")
+        test_puts("\n=== STEP 4: Verify payload integrity ===")
 
         assert response.body["event"] == "payment.completed"
         assert response.body["data"]["transaction_id"] == "txn_outbound_001"
         assert response.body["data"]["amount"] == 75_000
 
-        IO.puts("✓ Payload integrity verified")
-        IO.puts("  - Transaction ID matches: #{response.body["data"]["transaction_id"]}")
-        IO.puts("  - Amount matches: #{response.body["data"]["amount"]}")
+        test_puts("✓ Payload integrity verified")
+        test_puts("  - Transaction ID matches: #{response.body["data"]["transaction_id"]}")
+        test_puts("  - Amount matches: #{response.body["data"]["amount"]}")
 
         # STEP 5: Verify JWS claims
-        IO.puts("\n=== STEP 5: Verify JWS claims (security) ===")
+        test_puts("\n=== STEP 5: Verify JWS claims (security) ===")
 
         assert is_binary(response.body["jti"])
         assert is_integer(response.body["iat"])
         assert is_integer(response.body["exp"])
 
-        IO.puts("✓ JWS security claims present")
-        IO.puts("  - jti (unique ID): #{response.body["jti"]}")
-        IO.puts("  - iat (issued at): #{response.body["iat"]}")
-        IO.puts("  - exp (expires): #{response.body["exp"]}")
+        test_puts("✓ JWS security claims present")
+        test_puts("  - jti (unique ID): #{response.body["jti"]}")
+        test_puts("  - iat (issued at): #{response.body["iat"]}")
+        test_puts("  - exp (expires): #{response.body["exp"]}")
 
-        IO.puts("\n=== COMPLETE: Outbound non-repudiation flow verified ===\n")
-        IO.puts("What this proves:")
-        IO.puts("  1. We signed the webhook with our private key")
-        IO.puts("  2. Partner verified using our public key (from JWKS)")
-        IO.puts("  3. Payload hasn't been tampered with")
-        IO.puts("  4. We cannot deny sending this webhook (non-repudiation)")
-        IO.puts("  5. Partner can store this in their audit trail as proof")
-        IO.puts("")
+        test_puts("\n=== COMPLETE: Outbound non-repudiation flow verified ===\n")
+        test_puts("What this proves:")
+        test_puts("  1. We signed the webhook with our private key")
+        test_puts("  2. Partner verified using our public key (from JWKS)")
+        test_puts("  3. Payload hasn't been tampered with")
+        test_puts("  4. We cannot deny sending this webhook (non-repudiation)")
+        test_puts("  5. Partner can store this in their audit trail as proof")
+        test_puts("")
 
         # LESSON: This demonstrates the complete outbound flow:
         # 1. We prepare webhook payload
@@ -140,7 +143,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
       if not keys_exist do
         :ok
       else
-        IO.puts("\n=== OUTBOUND FLOW: Compact Format ===\n")
+        test_puts("\n=== OUTBOUND FLOW: Compact Format ===\n")
 
         # Prepare webhook
         payload = %{
@@ -162,16 +165,16 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
             format: :compact
           )
 
-        IO.puts("✓ Compact format webhook sent and verified")
-        IO.puts("  - Format: compact (header.payload.signature)")
-        IO.puts("  - Partner verified: #{response.body["status"]}")
-        IO.puts("  - Event: #{response.body["event"]}")
+        test_puts("✓ Compact format webhook sent and verified")
+        test_puts("  - Format: compact (header.payload.signature)")
+        test_puts("  - Partner verified: #{response.body["status"]}")
+        test_puts("  - Event: #{response.body["event"]}")
 
         assert response.status == 200
         assert response.body["status"] == "verified"
         assert response.body["event"] == "subscription.renewed"
 
-        IO.puts("\n=== COMPLETE: Compact format demonstration ===\n")
+        test_puts("\n=== COMPLETE: Compact format demonstration ===\n")
 
         # LESSON: Compact format advantages:
         # - Smaller size (single string)
@@ -194,7 +197,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
       if not keys_exist do
         :ok
       else
-        IO.puts("\n=== SECURITY: Tampering Detection ===\n")
+        test_puts("\n=== SECURITY: Tampering Detection ===\n")
 
         # STEP 1: Create valid signed webhook
         payload = %{
@@ -204,8 +207,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
         {:ok, jws} = JwsDemo.JWS.Signer.sign_flattened(payload, private_key, kid: "demo-2025-01")
 
-        IO.puts("✓ Original webhook created")
-        IO.puts("  - Amount: #{payload["amount"]}")
+        test_puts("✓ Original webhook created")
+        test_puts("  - Amount: #{payload["amount"]}")
 
         # STEP 2: Attacker tampers with payload
         tampered_payload =
@@ -219,8 +222,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
         tampered_jws = %{jws | "payload" => tampered_payload}
 
-        IO.puts("⚠ Attacker tampered with payload")
-        IO.puts("  - Changed amount to: 100,000")
+        test_puts("⚠ Attacker tampered with payload")
+        test_puts("  - Changed amount to: 100,000")
 
         # STEP 3: Partner receives tampered webhook
         conn =
@@ -233,11 +236,11 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         response = json_response(conn, 401)
         assert response["error"] == "signature_verification_failed"
 
-        IO.puts("✓ Partner rejected tampered webhook")
-        IO.puts("  - Status: #{conn.status}")
-        IO.puts("  - Error: #{response["error"]}")
+        test_puts("✓ Partner rejected tampered webhook")
+        test_puts("  - Status: #{conn.status}")
+        test_puts("  - Error: #{response["error"]}")
 
-        IO.puts("\n=== SECURITY VALIDATED: Tampering prevented ===\n")
+        test_puts("\n=== SECURITY VALIDATED: Tampering prevented ===\n")
 
         # LESSON: JWS signatures prevent tampering:
         # 1. Attacker intercepts webhook
@@ -299,21 +302,21 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
       if not keys_exist do
         :ok
       else
-        IO.puts("\n=== BIDIRECTIONAL NON-REPUDIATION ===\n")
+        test_puts("\n=== BIDIRECTIONAL NON-REPUDIATION ===\n")
 
-        IO.puts("Direction 1: Partner → Us (Inbound)")
-        IO.puts("  - Partner signs authorization request")
-        IO.puts("  - We verify partner's signature")
-        IO.puts("  - We store in audit trail")
-        IO.puts("  - Partner cannot deny sending request")
-        IO.puts("  (See: test/jws_demo/integration/authorization_flow_test.exs)")
+        test_puts("Direction 1: Partner → Us (Inbound)")
+        test_puts("  - Partner signs authorization request")
+        test_puts("  - We verify partner's signature")
+        test_puts("  - We store in audit trail")
+        test_puts("  - Partner cannot deny sending request")
+        test_puts("  (See: test/jws_demo/integration/authorization_flow_test.exs)")
 
-        IO.puts("\nDirection 2: Us → Partner (Outbound)")
-        IO.puts("  - We sign webhook notification")
-        IO.puts("  - Partner verifies our signature")
-        IO.puts("  - Partner stores in their audit trail")
-        IO.puts("  - We cannot deny sending webhook")
-        IO.puts("  (This test)")
+        test_puts("\nDirection 2: Us → Partner (Outbound)")
+        test_puts("  - We sign webhook notification")
+        test_puts("  - Partner verifies our signature")
+        test_puts("  - Partner stores in their audit trail")
+        test_puts("  - We cannot deny sending webhook")
+        test_puts("  (This test)")
 
         # Demonstrate outbound direction
         webhook_url =
@@ -331,11 +334,11 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         assert response.status == 200
         assert response.body["status"] == "verified"
 
-        IO.puts("\n✓ Bidirectional non-repudiation demonstrated")
-        IO.puts("\nKey Insight:")
-        IO.puts("  Both parties sign their requests → Both parties have non-repudiation")
-        IO.puts("  This creates a complete audit trail for dispute resolution")
-        IO.puts("")
+        test_puts("\n✓ Bidirectional non-repudiation demonstrated")
+        test_puts("\nKey Insight:")
+        test_puts("  Both parties sign their requests → Both parties have non-repudiation")
+        test_puts("  This creates a complete audit trail for dispute resolution")
+        test_puts("")
 
         # LESSON: Bidirectional non-repudiation means:
         # - Both parties sign their requests
@@ -354,7 +357,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
       if not keys_exist do
         :ok
       else
-        IO.puts("\n=== OUTBOUND AUDIT TRAIL ===\n")
+        test_puts("\n=== OUTBOUND AUDIT TRAIL ===\n")
 
         webhook_url =
           "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
@@ -369,7 +372,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
               select: count(a.id)
           )
 
-        IO.puts("✓ Outbound audit logs before: #{before_count}")
+        test_puts("✓ Outbound audit logs before: #{before_count}")
 
         # SEND: Webhook with audit enabled
         {:ok, response} =
@@ -389,7 +392,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
         assert response.status == 200
 
-        IO.puts("✓ Webhook sent successfully")
+        test_puts("✓ Webhook sent successfully")
 
         # AFTER: Verify audit log was created
         after_count =
@@ -401,7 +404,7 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
         assert after_count == before_count + 1
 
-        IO.puts("✓ Outbound audit logs after: #{after_count}")
+        test_puts("✓ Outbound audit logs after: #{after_count}")
 
         # VERIFY: Audit log contains correct data
         # The transaction_id is now extracted and stored as instruction_id
@@ -420,13 +423,13 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         assert is_map(audit_log.response_body)
         assert audit_log.response_body["status"] == "verified"
 
-        IO.puts("✓ Audit log created with:")
-        IO.puts("  - Direction: #{audit_log.direction}")
-        IO.puts("  - URI: #{audit_log.uri}")
-        IO.puts("  - Response Status: #{audit_log.response_status}")
-        IO.puts("  - Partner Response: #{audit_log.response_body["status"]}")
+        test_puts("✓ Audit log created with:")
+        test_puts("  - Direction: #{audit_log.direction}")
+        test_puts("  - URI: #{audit_log.uri}")
+        test_puts("  - Response Status: #{audit_log.response_status}")
+        test_puts("  - Partner Response: #{audit_log.response_body["status"]}")
 
-        IO.puts("\n=== COMPLETE: Outbound audit trail verified ===\n")
+        test_puts("\n=== COMPLETE: Outbound audit trail verified ===\n")
 
         # LESSON: Outbound audit logs prove:
         # - We sent this specific webhook (original JWS stored)
