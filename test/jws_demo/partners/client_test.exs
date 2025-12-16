@@ -42,8 +42,9 @@ defmodule JwsDemo.Partners.ClientTest do
       # and test-key-001 isn't in the JWKS cache
       assert {:ok, response} = result
       assert response.status == 401
+
       assert response.body["error"] == "signature_verification_failed" ||
-             response.body["error"] == "key_fetch_failed"
+               response.body["error"] == "key_fetch_failed"
 
       # LESSON: Client successfully creates and sends the JWS request.
       # The verification failure is expected in this test environment.
@@ -67,7 +68,9 @@ defmodule JwsDemo.Partners.ClientTest do
       assert Map.has_key?(jws, "signature")
 
       # VERIFY: Protected header includes kid
-      protected_decoded = jws["protected"] |> Base.url_decode64!(padding: false) |> Jason.decode!()
+      protected_decoded =
+        jws["protected"] |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
       assert protected_decoded["kid"] == "test-key"
       assert protected_decoded["alg"] == "ES256"
 
@@ -127,7 +130,10 @@ defmodule JwsDemo.Partners.ClientTest do
   end
 
   describe "send_webhook/5" do
-    test "structures webhook payload correctly", %{private_key: private_key, public_key: public_key} do
+    test "structures webhook payload correctly", %{
+      private_key: private_key,
+      public_key: public_key
+    } do
       # SETUP: Send webhook (will fail with connection error, but we can verify structure)
       event_type = "invoice.paid"
 
@@ -145,7 +151,8 @@ defmodule JwsDemo.Partners.ClientTest do
       }
 
       # Sign it like send_webhook does
-      {:ok, jws} = JwsDemo.JWS.Signer.sign_flattened(webhook_payload, private_key, kid: "webhook-key")
+      {:ok, jws} =
+        JwsDemo.JWS.Signer.sign_flattened(webhook_payload, private_key, kid: "webhook-key")
 
       # VERIFY: Partner receives structured webhook
       {:ok, verified} = Verifier.verify(jws, public_key)
@@ -176,7 +183,9 @@ defmodule JwsDemo.Partners.ClientTest do
         "data" => event_data
       }
 
-      {:ok, jws} = JwsDemo.JWS.Signer.sign_flattened(webhook_payload, private_key, kid: "replay-test")
+      {:ok, jws} =
+        JwsDemo.JWS.Signer.sign_flattened(webhook_payload, private_key, kid: "replay-test")
+
       {:ok, verified} = Verifier.verify(jws, public_key)
 
       # VERIFY: Timestamp validation
@@ -193,7 +202,10 @@ defmodule JwsDemo.Partners.ClientTest do
       assert exp == iat + 300
 
       # jti should be unique UUID
-      assert String.match?(jti, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+      assert String.match?(
+               jti,
+               ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+             )
 
       # LESSON: Replay protection mechanisms:
       # 1. iat: Partner rejects old webhooks
@@ -210,7 +222,8 @@ defmodule JwsDemo.Partners.ClientTest do
   describe "load_private_key/1" do
     test "loads private key from PEM file" do
       # SETUP: Use demo private key
-      key_path = Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_private_key.pem"])
+      key_path =
+        Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_private_key.pem"])
 
       # Skip if key doesn't exist yet
       if File.exists?(key_path) do
@@ -218,7 +231,8 @@ defmodule JwsDemo.Partners.ClientTest do
         {:ok, jwk} = Client.load_private_key(key_path)
 
         # VERIFY: Key is valid EC private key
-        %JOSE.JWK{} = jwk  # Verify it's a JWK struct
+        # Verify it's a JWK struct
+        %JOSE.JWK{} = jwk
 
         # VERIFY: Can sign with this key
         test_payload = %{"test" => "data"}
@@ -261,7 +275,8 @@ defmodule JwsDemo.Partners.ClientTest do
         "expires_at" => "2026-12-09T00:00:00Z"
       }
 
-      {:ok, jws} = JwsDemo.JWS.Signer.sign_flattened(payload, private_key, kid: "partner-verify-test")
+      {:ok, jws} =
+        JwsDemo.JWS.Signer.sign_flattened(payload, private_key, kid: "partner-verify-test")
 
       # SIMULATE: Partner receives JWS and verifies it
       # Partner would:
@@ -307,7 +322,8 @@ defmodule JwsDemo.Partners.ClientTest do
         jws["payload"]
         |> Base.url_decode64!(padding: false)
         |> Jason.decode!()
-        |> Map.put("amount", 100_000)  # Changed from 10,000 to 100,000!
+        # Changed from 10,000 to 100,000!
+        |> Map.put("amount", 100_000)
         |> Jason.encode!()
         |> Base.url_encode64(padding: false)
 

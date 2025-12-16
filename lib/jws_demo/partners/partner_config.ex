@@ -25,7 +25,13 @@ defmodule JwsDemo.Partners.PartnerConfig do
   @doc false
   def changeset(partner_config, attrs) do
     partner_config
-    |> cast(attrs, [:partner_id, :jwks_url, :jwks_cache_ttl, :allowed_algorithms, :clock_skew_tolerance])
+    |> cast(attrs, [
+      :partner_id,
+      :jwks_url,
+      :jwks_cache_ttl,
+      :allowed_algorithms,
+      :clock_skew_tolerance
+    ])
     |> validate_required([:partner_id, :jwks_url])
     |> validate_number(:jwks_cache_ttl, greater_than: 0)
     |> validate_number(:clock_skew_tolerance, greater_than_or_equal_to: 0)

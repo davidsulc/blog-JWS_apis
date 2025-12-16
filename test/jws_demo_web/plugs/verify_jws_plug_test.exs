@@ -47,11 +47,12 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
       partner_jwk: jwk,
       get_jwk_fn: get_jwk_fn
     } do
-      instruction = Instruction.new!(%{
-        id: "txn_123",
-        amount: 50_000,
-        currency: "EUR"
-      })
+      instruction =
+        Instruction.new!(%{
+          id: "txn_123",
+          amount: 50_000,
+          currency: "EUR"
+        })
 
       # SETUP: Create signed authorization
       {:ok, jws} =
@@ -77,16 +78,18 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
     end
 
     test "accepts compact JWS format", %{
-        conn: conn,
-        partner_id: partner_id,
-        partner_jwk: jwk,
-        get_jwk_fn: get_jwk_fn} do
+      conn: conn,
+      partner_id: partner_id,
+      partner_jwk: jwk,
+      get_jwk_fn: get_jwk_fn
+    } do
       # SETUP: Create compact JWS
-      instruction = Instruction.new!(%{
-        id: "txn_456",
-        amount: 25_000,
-        currency: "EUR"
-      })
+      instruction =
+        Instruction.new!(%{
+          id: "txn_456",
+          amount: 25_000,
+          currency: "EUR"
+        })
 
       {:ok, compact_jws} =
         instruction
@@ -204,10 +207,10 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
     end
 
     test "rejects invalid request body with 401", %{
-        conn: conn,
-        partner_id: partner_id,
-        get_jwk_fn: get_jwk_fn
-      } do
+      conn: conn,
+      partner_id: partner_id,
+      get_jwk_fn: get_jwk_fn
+    } do
       # REQUEST: Invalid body (not JWS format)
       conn =
         conn
@@ -225,17 +228,17 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
     end
 
     test "rejects unknown partner with 401", %{
-        conn: conn,
-        partner_jwk: jwk,
-        get_jwk_fn: get_jwk_fn
-      } do
+      conn: conn,
+      partner_jwk: jwk,
+      get_jwk_fn: get_jwk_fn
+    } do
       # SETUP: Valid JWS
       {:ok, jws} = Signer.sign_flattened(%{"amount" => 50_000}, jwk, kid: "key")
 
       # REQUEST: Unknown partner
       conn =
         conn
-        |> setup_with(partner_id:  "unknown_partner", body: jws)
+        |> setup_with(partner_id: "unknown_partner", body: jws)
         |> VerifyJWSPlug.call(get_jwk: get_jwk_fn)
 
       # VERIFY: 401 response
@@ -251,10 +254,10 @@ defmodule JwsDemoWeb.VerifyJWSPlugTest do
 
   describe "call/2 - configuration" do
     test "returns error when get_jwk not configured", %{
-        conn: conn,
-        partner_id: partner_id,
-        partner_jwk: jwk
-      } do
+      conn: conn,
+      partner_id: partner_id,
+      partner_jwk: jwk
+    } do
       # SETUP: Valid JWS
       {:ok, jws} = Signer.sign_flattened(%{"amount" => 50_000}, jwk, kid: "key")
 

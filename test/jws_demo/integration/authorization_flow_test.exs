@@ -47,7 +47,12 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
   end
 
   describe "complete authorization flow" do
-    test "sign → verify → process → audit → re-verify", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
+    test "sign → verify → process → audit → re-verify", %{
+      conn: conn,
+      jwk: jwk,
+      partner: partner,
+      kid: kid
+    } do
       # STEP 1: Partner creates authorization payload
       payload = %{
         "instruction_id" => "txn_integration_001",
@@ -127,7 +132,10 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
 
       IO.puts("✓ Verification package generated")
       IO.puts("  - Location: #{output_dir}")
-      IO.puts("  - Files: jws_original.txt, public_key.pem, public_key.jwk, payload_decoded.json, VERIFICATION.md")
+
+      IO.puts(
+        "  - Files: jws_original.txt, public_key.pem, public_key.jwk, payload_decoded.json, VERIFICATION.md"
+      )
 
       # Cleanup
       File.rm_rf!(output_dir)
@@ -143,7 +151,12 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       # 5. Verification package enables independent audit
     end
 
-    test "multiple authorizations are isolated in audit trail", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
+    test "multiple authorizations are isolated in audit trail", %{
+      conn: conn,
+      jwk: jwk,
+      partner: partner,
+      kid: kid
+    } do
       # Create two separate authorizations by posting to endpoint
       payloads = [
         %{"instruction_id" => "txn_multi_001", "amount" => 50_000},
@@ -177,7 +190,12 @@ defmodule JwsDemo.Integration.AuthorizationFlowTest do
       # for each authorization, enabling granular re-verification.
     end
 
-    test "tampered audit log is detected on re-verification", %{conn: conn, jwk: jwk, partner: partner, kid: kid} do
+    test "tampered audit log is detected on re-verification", %{
+      conn: conn,
+      jwk: jwk,
+      partner: partner,
+      kid: kid
+    } do
       # Create authorization via endpoint (which creates audit log)
       payload = %{"instruction_id" => "txn_tamper_test", "amount" => 10_000}
       {:ok, jws} = Signer.sign_flattened(payload, jwk, kid: kid)

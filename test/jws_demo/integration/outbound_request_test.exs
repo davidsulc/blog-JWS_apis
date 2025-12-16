@@ -8,8 +8,11 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
   setup do
     # Use the demo keypair for integration tests
     # In production, this would be loaded from secure storage
-    private_key_path = Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_private_key.pem"])
-    public_key_path = Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_public_key.pem"])
+    private_key_path =
+      Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_private_key.pem"])
+
+    public_key_path =
+      Path.join([Application.app_dir(:jws_demo), "priv", "keys", "demo_public_key.pem"])
 
     if File.exists?(private_key_path) and File.exists?(public_key_path) do
       {:ok, private_key} = Client.load_private_key(private_key_path)
@@ -56,7 +59,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         # STEP 2: Sign with our private key
         IO.puts("\n=== STEP 2: Sign webhook with our private key ===")
 
-        mock_partner_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+        mock_partner_url =
+          "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
 
         {:ok, response} =
           Client.send_signed_request(
@@ -145,7 +149,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
           "expires_at" => "2026-12-09T00:00:00Z"
         }
 
-        mock_partner_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+        mock_partner_url =
+          "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
 
         # Send with compact format
         {:ok, response} =
@@ -207,7 +212,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
           jws["payload"]
           |> Base.url_decode64!(padding: false)
           |> Jason.decode!()
-          |> Map.put("amount", 100_000)  # Change 10K to 100K!
+          # Change 10K to 100K!
+          |> Map.put("amount", 100_000)
           |> Jason.encode!()
           |> Base.url_encode64(padding: false)
 
@@ -252,7 +258,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         :ok
       else
         # Test the send_webhook convenience method
-        webhook_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+        webhook_url =
+          "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
 
         event_data = %{
           "invoice_id" => "inv_webhook_001",
@@ -309,7 +316,8 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         IO.puts("  (This test)")
 
         # Demonstrate outbound direction
-        webhook_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+        webhook_url =
+          "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
 
         {:ok, response} =
           Client.send_webhook(
@@ -348,15 +356,18 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
       else
         IO.puts("\n=== OUTBOUND AUDIT TRAIL ===\n")
 
-        webhook_url = "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
+        webhook_url =
+          "http://localhost:#{Application.get_env(:jws_demo, JwsDemoWeb.Endpoint)[:http][:port]}/mock/partner/webhooks"
 
         # BEFORE: Count existing outbound audit logs
         import Ecto.Query
-        before_count = JwsDemo.Repo.one(
-          from a in JwsDemo.AuditLogs.AuditLog,
-          where: a.direction == "outbound",
-          select: count(a.id)
-        )
+
+        before_count =
+          JwsDemo.Repo.one(
+            from a in JwsDemo.AuditLogs.AuditLog,
+              where: a.direction == "outbound",
+              select: count(a.id)
+          )
 
         IO.puts("✓ Outbound audit logs before: #{before_count}")
 
@@ -381,11 +392,12 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
         IO.puts("✓ Webhook sent successfully")
 
         # AFTER: Verify audit log was created
-        after_count = JwsDemo.Repo.one(
-          from a in JwsDemo.AuditLogs.AuditLog,
-          where: a.direction == "outbound",
-          select: count(a.id)
-        )
+        after_count =
+          JwsDemo.Repo.one(
+            from a in JwsDemo.AuditLogs.AuditLog,
+              where: a.direction == "outbound",
+              select: count(a.id)
+          )
 
         assert after_count == before_count + 1
 
@@ -393,12 +405,13 @@ defmodule JwsDemo.Integration.OutboundRequestTest do
 
         # VERIFY: Audit log contains correct data
         # The transaction_id is now extracted and stored as instruction_id
-        audit_log = JwsDemo.Repo.one(
-          from a in JwsDemo.AuditLogs.AuditLog,
-          where: a.direction == "outbound" and a.instruction_id == "txn_audit_outbound_001",
-          order_by: [desc: a.inserted_at],
-          limit: 1
-        )
+        audit_log =
+          JwsDemo.Repo.one(
+            from a in JwsDemo.AuditLogs.AuditLog,
+              where: a.direction == "outbound" and a.instruction_id == "txn_audit_outbound_001",
+              order_by: [desc: a.inserted_at],
+              limit: 1
+          )
 
         assert audit_log != nil
         assert audit_log.direction == "outbound"

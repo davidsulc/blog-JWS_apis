@@ -55,8 +55,10 @@ defmodule JwsDemo.JWS.JWKSCache do
   use GenServer
   require Logger
 
-  @default_ttl 900 # 15 minutes
-  @stale_grace_period 86_400 # 24 hours
+  # 15 minutes
+  @default_ttl 900
+  # 24 hours
+  @stale_grace_period 86_400
   @table_name :jwks_cache
   # Demo mode: set to false in production to enable real JWKS fetching
   @demo_mode Application.compile_env(:jws_demo, :jwks_demo_mode, true)

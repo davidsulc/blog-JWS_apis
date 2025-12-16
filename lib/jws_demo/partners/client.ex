@@ -265,7 +265,15 @@ defmodule JwsDemo.Partners.Client do
   # Private functions
 
   # Create audit log for outbound request
-  defp create_outbound_audit_log(_payload, private_key, jws_signature, partner_id, url, status, response_body) do
+  defp create_outbound_audit_log(
+         _payload,
+         private_key,
+         jws_signature,
+         partner_id,
+         url,
+         status,
+         response_body
+       ) do
     # Get the verified payload (add automatic claims that were added during signing)
     # We need to reconstruct this from the JWS to get iat, exp, jti
     [_protected, payload_b64, _signature] = String.split(jws_signature, ".")
@@ -292,7 +300,10 @@ defmodule JwsDemo.Partners.Client do
 
     case Audit.log_authorization(verified_payload_with_id, private_key, metadata) do
       {:ok, audit_log} ->
-        Logger.info("Outbound audit log created: id=#{audit_log.id}, uri=#{audit_log.uri}, status=#{audit_log.response_status}")
+        Logger.info(
+          "Outbound audit log created: id=#{audit_log.id}, uri=#{audit_log.uri}, status=#{audit_log.response_status}"
+        )
+
         :ok
 
       {:error, changeset} ->

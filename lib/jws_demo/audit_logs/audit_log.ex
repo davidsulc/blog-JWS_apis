@@ -38,10 +38,14 @@ defmodule JwsDemo.AuditLogs.AuditLog do
     field :verification_kid, :string
 
     # Bidirectional audit trail fields
-    field :direction, :string  # "inbound" or "outbound"
-    field :uri, :string        # Endpoint URI
-    field :response_status, :integer  # HTTP status code
-    field :response_body, :map        # Response data
+    # "inbound" or "outbound"
+    field :direction, :string
+    # Endpoint URI
+    field :uri, :string
+    # HTTP status code
+    field :response_status, :integer
+    # Response data
+    field :response_body, :map
 
     belongs_to :partner, JwsDemo.Partners.Partner
 

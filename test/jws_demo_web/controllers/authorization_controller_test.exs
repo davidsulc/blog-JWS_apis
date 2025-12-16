@@ -24,7 +24,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   end
 
   describe "POST /api/v1/authorizations - successful authorization" do
-    test "approves valid authorization request", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "approves valid authorization request", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Create authorization payload
       payload = %{
         "instruction_id" => "txn_123",
@@ -59,7 +64,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       # the authorization, and returned approval with instruction_id.
     end
 
-    test "defaults currency to USD when not provided", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "defaults currency to USD when not provided", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Payload without currency
       payload = %{
         "instruction_id" => "txn_456",
@@ -81,7 +91,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       # LESSON: Controller provides sensible defaults for optional fields.
     end
 
-    test "includes JWT claims in response", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "includes JWT claims in response", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP
       payload = %{
         "instruction_id" => "txn_789",
@@ -108,7 +123,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   end
 
   describe "POST /api/v1/authorizations - validation failures" do
-    test "rejects authorization missing instruction_id", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects authorization missing instruction_id", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Missing required field
       payload = %{
         "amount" => 50_000,
@@ -136,7 +156,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       # business validation. Signature proves intent, validation ensures correctness.
     end
 
-    test "rejects authorization missing amount", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects authorization missing amount", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Missing amount
       payload = %{
         "instruction_id" => "txn_no_amount",
@@ -156,7 +181,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       assert %{"error" => "authorization_failed"} = json_response(conn, 400)
     end
 
-    test "rejects authorization with negative amount", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects authorization with negative amount", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Invalid amount (negative)
       payload = %{
         "instruction_id" => "txn_negative",
@@ -184,7 +214,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       # even when cryptographic signature is valid.
     end
 
-    test "rejects authorization with zero amount", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects authorization with zero amount", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Zero amount
       payload = %{
         "instruction_id" => "txn_zero",
@@ -204,7 +239,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
       assert %{"error" => "authorization_failed"} = json_response(conn, 400)
     end
 
-    test "rejects authorization with non-numeric amount", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects authorization with non-numeric amount", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Amount as string
       payload = %{
         "instruction_id" => "txn_string_amount",
@@ -231,7 +271,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   end
 
   describe "POST /api/v1/authorizations - signature verification" do
-    test "rejects request with invalid signature", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "rejects request with invalid signature", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Create valid JWS then tamper with it
       payload = %{
         "instruction_id" => "txn_tampered",
@@ -305,7 +350,12 @@ defmodule JwsDemoWeb.AuthorizationControllerTest do
   end
 
   describe "POST /api/v1/authorizations - audit trail" do
-    test "creates audit log for approved authorization", %{conn: conn, jwk: jwk, partner_id: partner_id, kid: kid} do
+    test "creates audit log for approved authorization", %{
+      conn: conn,
+      jwk: jwk,
+      partner_id: partner_id,
+      kid: kid
+    } do
       # SETUP: Create signed authorization
       payload = %{
         "instruction_id" => "txn_audit_test_123",

@@ -98,9 +98,7 @@ defmodule JwsDemoWeb.PartnerWebhookController do
             # STEP 3: Verify signature
             case Verifier.verify(jws, public_key) do
               {:ok, verified_payload} ->
-                Logger.info(
-                  "Partner verified our webhook: event=#{verified_payload["event"]}"
-                )
+                Logger.info("Partner verified our webhook: event=#{verified_payload["event"]}")
 
                 handle_verified_webhook(conn, verified_payload)
 

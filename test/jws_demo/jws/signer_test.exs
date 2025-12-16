@@ -81,12 +81,13 @@ defmodule JwsDemo.JWS.SignerTest do
 
     test "supports custom expiration time", %{jwk: jwk} do
       # SIGN with 1-hour expiration
-      {:ok, jws} = Signer.sign_flattened(
-        %{"amount" => 10_000},
-        jwk,
-        kid: "test-key",
-        exp_seconds: 3600
-      )
+      {:ok, jws} =
+        Signer.sign_flattened(
+          %{"amount" => 10_000},
+          jwk,
+          kid: "test-key",
+          exp_seconds: 3600
+        )
 
       # VERIFY
       payload_json = Base.url_decode64!(jws["payload"], padding: false)

@@ -63,6 +63,7 @@ defmodule JwsDemo.JWS.VerifierTest do
     test "accepts 2-minute clock skew", %{partner_jwk: jwk} do
       # SETUP: Create token that expired 2 minutes ago
       now = System.system_time(:second)
+
       payload = %{
         "instruction_id" => "txn_456",
         "iat" => now - 240,
@@ -170,6 +171,7 @@ defmodule JwsDemo.JWS.VerifierTest do
     test "rejects expired token", %{partner_jwk: jwk} do
       # SETUP: Create token that expired 10 minutes ago (beyond clock skew)
       now = System.system_time(:second)
+
       expired_payload = %{
         "instruction_id" => "txn_expired",
         "amount" => 50_000,
@@ -195,6 +197,7 @@ defmodule JwsDemo.JWS.VerifierTest do
     test "rejects 7-minute clock skew", %{partner_jwk: jwk} do
       # SETUP: Create token that expired 7 minutes ago
       now = System.system_time(:second)
+
       payload = %{
         "instruction_id" => "txn_skew",
         "amount" => 50_000,
@@ -220,6 +223,7 @@ defmodule JwsDemo.JWS.VerifierTest do
     test "rejects token issued in future", %{partner_jwk: jwk} do
       # SETUP: Create token issued 10 minutes in the future
       now = System.system_time(:second)
+
       future_payload = %{
         "instruction_id" => "txn_future",
         "amount" => 50_000,

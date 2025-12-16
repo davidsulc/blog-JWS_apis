@@ -167,7 +167,10 @@ defmodule JwsDemoWeb.AuthorizationController do
 
     case Audit.log_authorization(verified_payload, partner_jwk, metadata) do
       {:ok, audit_log} ->
-        Logger.info("Audit log created: id=#{audit_log.id}, direction=#{audit_log.direction}, uri=#{audit_log.uri}")
+        Logger.info(
+          "Audit log created: id=#{audit_log.id}, direction=#{audit_log.direction}, uri=#{audit_log.uri}"
+        )
+
         :ok
 
       {:error, changeset} ->

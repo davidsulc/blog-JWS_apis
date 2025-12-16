@@ -179,7 +179,10 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
   end
 
   defp fetch_kid(%{"kid" => kid}) when is_binary(kid), do: {:ok, kid}
-  defp fetch_kid(%{"kid" => kid}) when not is_binary(kid), do: {:error, {:invalid_kid, "kid must be a string"}}
+
+  defp fetch_kid(%{"kid" => kid}) when not is_binary(kid),
+    do: {:error, {:invalid_kid, "kid must be a string"}}
+
   defp fetch_kid(%{}), do: {:error, {:missing_kid, "JWS header must include 'kid' (Key ID)"}}
 
   # Get partner's public key (JWK) using partner_id and kid

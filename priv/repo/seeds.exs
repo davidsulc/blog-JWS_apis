@@ -106,7 +106,11 @@ IO.puts(String.duplicate("=", 60))
 IO.puts("\nSummary:")
 IO.puts("  - #{Repo.aggregate(Partner, :count)} partners created")
 IO.puts("  - #{Repo.aggregate(PartnerConfig, :count)} partner configurations created")
-IO.puts("  - #{Repo.aggregate(Partner |> Ecto.Query.where(active: true), :count)} active partners")
+
+IO.puts(
+  "  - #{Repo.aggregate(Partner |> Ecto.Query.where(active: true), :count)} active partners"
+)
+
 IO.puts("\nPartners:")
 IO.puts("  1. partner_abc - ABC Financial Institution (ACTIVE)")
 IO.puts("  2. partner_xyz - XYZ Payment Processor (ACTIVE)")
