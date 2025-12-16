@@ -152,24 +152,32 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
     end
   end
 
-  defp decode_kid_from_header(header_b64) do
-    with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
-         {:ok, header} <- Jason.decode(header_json),
-         kid when is_binary(kid) <- Map.get(header, "kid") do
-      {:ok, kid}
-    else
-      nil ->
-        {:error, {:missing_kid, "JWS header must include 'kid' (Key ID)"}}
-
-      {:error, _} ->
-        {:error, {:invalid_jws, "Failed to decode JWS header"}}
-
-      _ ->
-        {:error, {:invalid_kid, "kid must be a string"}}
+  defp decode_kid_from_header(header_b64) when is_binary(header_b64) do
+    with {:ok, header_json} <- decode_jws_header(header_b64),
+         {:ok, header} <- parse_json(header_json) do
+      fetch_kid(header)
     end
-  rescue
-    _ -> {:error, {:invalid_jws, "Failed to parse JWS header"}}
   end
+
+  defp decode_kid_from_header(header_b64) when not is_binary(header_b64) do
+    {:error, {:invalid_jws, "JWS header must be a string"}}
+  end
+
+  defp decode_jws_header(header) when is_binary(header) do
+    with :error <- Base.url_decode64(header, padding: false) do
+      {:error, {:invalid_jws, "Failed to decode JWS header"}}
+    end
+  end
+
+  defp parse_json(json) do
+    with {:error, _} <- Jason.decode(json) do
+      {:error, {:invalid_jws, "Failed to parse JWS header"}}
+    end
+  end
+
+  defp fetch_kid(%{"kid" => kid}) when is_binary(kid), do: {:ok, kid}
+  defp fetch_kid(%{"kid" => kid}) when not is_binary(kid), do: {:error, {:invalid_kid, "kid must be a string"}}
+  defp fetch_kid(%{}), do: {:error, {:missing_kid, "JWS header must include 'kid' (Key ID)"}}
 
   # Get partner's public key (JWK) using partner_id and kid
   defp get_partner_key(partner_id, kid, opts) do
