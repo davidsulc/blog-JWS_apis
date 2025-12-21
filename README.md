@@ -4,7 +4,7 @@
 
 This project demonstrates cryptographic non-repudiation using ES256 (ECDSA P-256) signatures for authorization requests. It serves as an educational reference implementation for the 7-part blog series on JWS security.
 
-## 📚 Blog Series
+## Blog Series
 
 This codebase implements concepts from:
 
@@ -18,24 +18,24 @@ This codebase implements concepts from:
 
 See [docs/blog_post_mapping.md](docs/blog_post_mapping.md) for detailed code-to-post mapping.
 
-## 🎯 What This Demonstrates
+## What This Demonstrates
 
 ### Core Features
 
 #### Inbound Requests (Receiving from Partners)
-- ✅ **JWS Signature Verification**: Comprehensive validation (algorithm, timestamps, integrity)
-- ✅ **JWKS Caching**: Multi-tenant per-partner JWKS with stale-while-revalidate
-- ✅ **Audit Trail**: "Forever proof" with re-verification support
+- **JWS Signature Verification**: Comprehensive validation (algorithm, timestamps, integrity)
+- **JWKS Caching**: Multi-tenant per-partner JWKS with stale-while-revalidate
+- **Audit Trail**: "Forever proof" with re-verification support
 
 #### Outbound Requests (Sending to Partners)
-- ✅ **JWS Signing**: ES256 with flattened JSON + compact serialization
-- ✅ **Client Library**: Simple API for signing and sending webhooks
-- ✅ **JWKS Publishing**: Standard `/.well-known/jwks.json` endpoint
+- **JWS Signing**: ES256 with flattened JSON + compact serialization
+- **Client Library**: Simple API for signing and sending webhooks
+- **JWKS Publishing**: Standard `/.well-known/jwks.json` endpoint
 
 #### Bidirectional Non-Repudiation
-- ✅ **Complete Audit Trail**: Both sides sign their requests
-- ✅ **OpenSSL Verification**: Independent audit without our codebase
-- ✅ **Educational Tests**: Demonstrates both inbound and outbound flows
+- **Complete Audit Trail**: Both sides sign their requests
+- **OpenSSL Verification**: Independent audit without our codebase
+- **Educational Tests**: Demonstrates both inbound and outbound flows
 
 ### Security Validations
 
@@ -51,7 +51,7 @@ See [docs/blog_post_mapping.md](docs/blog_post_mapping.md) for detailed code-to-
 - Signature verification: <10ms
 - 100-2000x improvement with caching
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -135,7 +135,7 @@ docker compose logs -f app
 - Troubleshooting
 - CI/CD integration
 
-## 📡 API Endpoints
+## API Endpoints
 
 ### JWKS Endpoint
 
@@ -258,7 +258,7 @@ This simulates a partner's API receiving and verifying our signed webhooks.
 
 See [test/jws_demo/integration/outbound_request_test.exs](test/jws_demo/integration/outbound_request_test.exs) for complete examples.
 
-## 🧪 Testing
+## Testing
 
 ### Run All Tests
 
@@ -288,7 +288,7 @@ mix test test/jws_demo/integration/
 - **Bidirectional non-repudiation** demonstration
 - **Performance tests** validating sub-10ms verification
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 lib/
@@ -337,7 +337,7 @@ docs/
 └── blog_post_mapping.md            # Code-to-blog-post mapping
 ```
 
-## 🔐 Key Generation
+## Key Generation
 
 Generate ES256 keypairs for testing:
 
@@ -350,7 +350,7 @@ openssl ecparam -name prime256v1 -genkey -noout -out private_key.pem
 openssl ec -in private_key.pem -pubout -out public_key.pem
 ```
 
-## 🔄 Key Rotation
+## Key Rotation
 
 Demonstrate zero-downtime key rotation:
 
@@ -367,18 +367,18 @@ The script demonstrates the 3-phase rotation process:
 
 **Production Rotation Best Practices:**
 
-- ✅ Rotate keys every 90 days
-- ✅ Maintain 24-48 hour grace period with both keys active
-- ✅ Monitor audit logs for old key usage before removal
-- ✅ Notify partners 1 week ahead of rotation
-- ✅ Test new key with subset of traffic first
-- ✅ Emergency rotation can be done in minutes if key compromised
+- Rotate keys every 90 days
+- Maintain 24-48 hour grace period with both keys active
+- Monitor audit logs for old key usage before removal
+- Notify partners 1 week ahead of rotation
+- Test new key with subset of traffic first
+- Emergency rotation can be done in minutes if key compromised
 
 **Why Zero-Downtime Works:**
 
 During the transition phase, both keys are published in JWKS. Partners can continue using the old key while gradually adopting the new key. This eliminates coordination overhead and prevents service disruption.
 
-## 🔍 Audit & Verification
+## Audit & Verification
 
 ### Generate Verification Package
 
@@ -421,7 +421,7 @@ openssl dgst -sha256 -verify public_key.pem -signature signature.der signing_inp
 # Output: Verified OK
 ```
 
-## 🗄️ Database
+## Database
 
 ### Schema
 
@@ -441,7 +441,7 @@ Creates 4 test partners:
 - `partner_demo` - Demo Partner Inc (active, localhost JWKS)
 - `partner_inactive` - Inactive Partner LLC (inactive)
 
-## 📖 Educational Features
+## Educational Features
 
 ### Inline Comments
 
@@ -467,7 +467,7 @@ Example:
 
 See [docs/blog_post_mapping.md](docs/blog_post_mapping.md) for mapping between code and blog concepts.
 
-## 🎓 Learning Path
+## Learning Path
 
 Recommended order for understanding the codebase:
 
@@ -569,36 +569,36 @@ Without requiring:
 
 This makes the demo more accessible for learning while maintaining production-ready architecture.
 
-## ⚠️ Production Considerations
+## Production Considerations
 
 This is a **demonstration project**. For production use:
 
 ### Security
 
-- ✅ Use proper key management (HSM, KMS)
-- ✅ Implement mTLS for partner authentication
-- ✅ Add rate limiting and DDoS protection
-- ✅ Rotate keys regularly (every 90 days)
-- ✅ Monitor for algorithm downgrade attacks
-- ✅ **Disable demo mode** and implement real JWKS fetching (see Demo Mode Configuration above)
+- Use proper key management (HSM, KMS)
+- Implement mTLS for partner authentication
+- Add rate limiting and DDoS protection
+- Rotate keys regularly (every 90 days)
+- Monitor for algorithm downgrade attacks
+- **Disable demo mode** and implement real JWKS fetching (see Demo Mode Configuration above)
 
 ### Performance
 
-- ✅ Add Redis for distributed JWKS cache
-- ✅ Implement proper connection pooling
-- ✅ Add CDN for JWKS endpoint
-- ✅ Monitor verification latency
-- ✅ Implement circuit breakers for JWKS fetch
+- Add Redis for distributed JWKS cache
+- Implement proper connection pooling
+- Add CDN for JWKS endpoint
+- Monitor verification latency
+- Implement circuit breakers for JWKS fetch
 
 ### Compliance
 
-- ✅ Enable audit log retention policies
-- ✅ Implement proper access controls
-- ✅ Add encryption at rest for sensitive data
-- ✅ Ensure GDPR/PCI compliance
-- ✅ Regular security audits
+- Enable audit log retention policies
+- Implement proper access controls
+- Add encryption at rest for sensitive data
+- Ensure GDPR/PCI compliance
+- Regular security audits
 
-## 🔗 References
+## References
 
 ### RFCs
 
@@ -619,11 +619,11 @@ This is a **demonstration project**. For production use:
 - PCI DSS (Payment Card Industry Data Security Standard)
 - OpenID Connect Core 1.0
 
-## 📝 License
+## License
 
 Educational demonstration project.
 
-## 🤝 Contributing
+## Contributing
 
 This is a reference implementation for educational purposes. Feedback welcome!
 
