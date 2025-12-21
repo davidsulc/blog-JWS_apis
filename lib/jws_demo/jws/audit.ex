@@ -120,7 +120,9 @@ defmodule JwsDemo.JWS.Audit do
     partner =
       case Repo.get_by(JwsDemo.Partners.Partner, partner_id: partner_id_str) do
         nil ->
-          # Create partner if not exists (simplified for demo/tests)
+          # DEMO SIMPLIFICATION: Auto-create partners for tests
+          # PRODUCTION: Pre-register all partners in database with proper validation
+          # and onboarding verification before allowing any requests
           %JwsDemo.Partners.Partner{}
           |> JwsDemo.Partners.Partner.changeset(%{
             partner_id: partner_id_str,
