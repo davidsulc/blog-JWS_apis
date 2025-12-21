@@ -480,6 +480,95 @@ Recommended order for understanding the codebase:
 7. **End-to-end flow**: `test/jws_demo/integration/authorization_flow_test.exs`
 8. **OpenSSL verification**: `AUDIT.md`
 
+## Demo Mode Configuration
+
+**IMPORTANT:** This project runs in demo mode by default to simplify testing and education.
+
+### What Demo Mode Does
+
+The JWKS cache (`lib/jws_demo/jws/jwks_cache.ex`) has `@demo_mode true` configured, which:
+
+- **Disables real HTTP requests** to partner JWKS endpoints (no external network calls)
+- **Uses test fixtures** for key material inserted directly into ETS cache
+- **Focuses on JWS verification logic** without HTTP/network complexity
+- **Simplifies testing** - tests don't need mock HTTP servers
+
+### How Tests Work in Demo Mode
+
+Integration tests manually populate the JWKS cache:
+
+```elixir
+# From integration tests
+jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
+kid = "integration-key-2025"
+
+# Manually insert into JWKS cache ETS table
+cache_key = {partner.partner_id, kid}
+:ets.insert(:jwks_cache, {cache_key, jwk, now, ttl})
+```
+
+This allows tests to verify the complete verification pipeline without external dependencies.
+
+### Production Configuration
+
+For production deployment, disable demo mode and configure real JWKS URLs:
+
+**1. Set demo mode to false:**
+
+```elixir
+# lib/jws_demo/jws/jwks_cache.ex
+@demo_mode false  # Enable real JWKS fetching
+```
+
+**2. Configure partner JWKS URLs in database:**
+
+```elixir
+# Partner configuration
+%PartnerConfig{
+  partner_id: "partner_abc",
+  jwks_url: "https://partner-abc.example.com/.well-known/jwks.json",
+  jwks_cache_ttl: 900  # 15 minutes
+}
+```
+
+**3. Implement production JWKS client:**
+
+The codebase includes commented production HTTP fetching using `Req`:
+
+```elixir
+# In fetch_jwks/1 (line 253-266)
+case Req.get(jwks_url,
+       receive_timeout: 5000,
+       retry: :transient,
+       max_retries: 2
+     ) do
+  {:ok, %Req.Response{status: 200, body: jwks}} ->
+    {:ok, jwks}
+  # ... error handling
+end
+```
+
+**4. Add monitoring:**
+- Track JWKS fetch failures per partner
+- Alert on stale cache for critical partners
+- Monitor cache hit/miss ratios
+
+### Why Demo Mode Exists
+
+Demo mode allows the codebase to demonstrate:
+- Complete JWS verification logic
+- Multi-tenant cache architecture
+- Stale-while-revalidate patterns
+- Error handling and fallbacks
+
+Without requiring:
+- Real partner JWKS endpoints
+- Network connectivity in tests
+- Mock HTTP servers
+- External service dependencies
+
+This makes the demo more accessible for learning while maintaining production-ready architecture.
+
 ## ⚠️ Production Considerations
 
 This is a **demonstration project**. For production use:
@@ -491,7 +580,7 @@ This is a **demonstration project**. For production use:
 - ✅ Add rate limiting and DDoS protection
 - ✅ Rotate keys regularly (every 90 days)
 - ✅ Monitor for algorithm downgrade attacks
-- ✅ Implement proper JWKS fetching (not demo mode)
+- ✅ **Disable demo mode** and implement real JWKS fetching (see Demo Mode Configuration above)
 
 ### Performance
 
