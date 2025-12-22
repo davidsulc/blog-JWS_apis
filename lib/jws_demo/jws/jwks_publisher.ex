@@ -100,16 +100,25 @@ defmodule JwsDemo.JWS.JWKSPublisher do
 
   @impl true
   def init(_opts) do
-    # Load keys on startup
+    # Return immediately to avoid blocking supervisor startup
+    # Load keys asynchronously via handle_continue
+    {:ok, %{jwks: %{"keys" => []}}, {:continue, :load_keys}}
+  end
+
+  @impl true
+  def handle_continue(:load_keys, state) do
+    # Load keys asynchronously after init completes
+    Logger.info("JWKS publisher loading keys asynchronously")
+
     case load_all_keys() do
       {:ok, jwks} ->
-        Logger.info("JWKS publisher started with #{length(jwks["keys"])} keys")
-        {:ok, %{jwks: jwks}}
+        Logger.info("JWKS publisher loaded #{length(jwks["keys"])} keys")
+        {:noreply, %{state | jwks: jwks}}
 
       {:error, reason} ->
         Logger.error("JWKS publisher failed to load keys: #{inspect(reason)}")
-        # Start with empty JWKS rather than failing
-        {:ok, %{jwks: %{"keys" => []}}}
+        # Keep empty JWKS on load failure
+        {:noreply, state}
     end
   end
 
