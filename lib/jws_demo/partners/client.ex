@@ -310,45 +310,36 @@ defmodule JwsDemo.Partners.Client do
   end
 
   defp verify_partner_jws(jws, partner_id) do
-    # Extract kid from JWS header
-    with {:ok, header} <- extract_jws_header(jws),
-         {:ok, kid} <- Map.fetch(header, "kid"),
-         {:ok, partner_jwk} <- JWKSCache.get_key(partner_id, kid),
-         {:ok, verified_payload} <- Verifier.verify(jws, partner_jwk) do
-      Logger.info("Partner response signature verified: partner_id=#{partner_id}, kid=#{kid}")
-      {:ok, %{verified_payload: verified_payload, kid: kid}}
-    else
-      {:error, reason} ->
-        Logger.error("Partner response signature verification failed: #{inspect(reason)}")
-        {:error, {:verification_failed, reason}}
+    # Extract kid from JWS header using JOSE library
+    case JOSE.JWS.peek_protected(jws) do
+      {%{"kid" => kid}, _jws} ->
+        # Fetch partner's public key and verify signature
+        case JWKSCache.get_key(partner_id, kid) do
+          {:ok, partner_jwk} ->
+            case Verifier.verify(jws, partner_jwk) do
+              {:ok, verified_payload} ->
+                Logger.info("Partner response signature verified: partner_id=#{partner_id}, kid=#{kid}")
+                {:ok, %{verified_payload: verified_payload, kid: kid}}
 
-      :error ->
-        Logger.error("Partner response missing kid in JWS header")
-        {:error, :missing_kid}
-    end
-  end
+              {:error, reason} ->
+                Logger.error("Partner response signature verification failed: #{inspect(reason)}")
+                {:error, {:verification_failed, reason}}
+            end
 
-  defp extract_jws_header(jws) when is_binary(jws) do
-    case String.split(jws, ".") do
-      [header_b64, _, _] ->
-        with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
-             {:ok, header} <- Jason.decode(header_json) do
-          {:ok, header}
+          {:error, reason} ->
+            Logger.error("Failed to fetch partner key: partner_id=#{partner_id}, kid=#{kid}, reason=#{inspect(reason)}")
+            {:error, {:key_fetch_failed, reason}}
         end
 
-      _ ->
+      {%{}, _jws} ->
+        Logger.error("Partner response missing kid in JWS header")
+        {:error, :missing_kid}
+
+      error ->
+        Logger.error("Failed to peek JWS header: #{inspect(error)}")
         {:error, :invalid_jws_format}
     end
   end
-
-  defp extract_jws_header(%{"protected" => protected_b64}) when is_binary(protected_b64) do
-    with {:ok, header_json} <- Base.url_decode64(protected_b64, padding: false),
-         {:ok, header} <- Jason.decode(header_json) do
-      {:ok, header}
-    end
-  end
-
-  defp extract_jws_header(_), do: {:error, :invalid_jws_format}
 
   # Create audit log for outbound request
   defp create_outbound_audit_log(
