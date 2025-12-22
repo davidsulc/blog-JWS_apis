@@ -1,44 +1,54 @@
 defmodule JwsDemo.Partners.Client do
   @moduledoc """
-  Client for making signed outbound requests to partner APIs.
+  Client for making signed outbound requests to partner APIs with bidirectional verification.
 
-  This module demonstrates the client-side of JWS non-repudiation:
+  This module demonstrates the complete bidirectional JWS non-repudiation pattern:
   - Sign outbound requests with our private key
   - Send JWS-signed payloads to partner APIs
   - Partners verify our signature to prove authorization
+  - **Verify partner's signed response** for complete non-repudiation
+  - Store both signatures in audit trail
 
   ## Purpose
 
   While most of this demo focuses on *receiving* signed requests from partners,
-  this module shows the flip side: *sending* signed requests to partners.
+  this module shows the flip side: *sending* signed requests to partners AND
+  verifying their signed responses.
 
   This is important for:
   1. **Webhooks**: Sending signed notifications to partners
   2. **API Calls**: Authorizing actions on partner systems
-  3. **Bidirectional Non-Repudiation**: Both parties sign their requests
+  3. **Bidirectional Non-Repudiation**: Both parties sign their messages
+  4. **Complete Audit Trail**: Cryptographic proof of both request and response
 
-  ## Example Flow
+  ## Complete Bidirectional Flow
 
   ```
-  1. We want to notify a partner about a transaction
-  2. Create payload with transaction details
-  3. Sign payload with our private key
-  4. Send JWS to partner's webhook URL
-  5. Partner verifies our signature using our public key (from our JWKS endpoint)
-  6. Partner processes the verified notification
+  1. We sign our request with our private key
+  2. Send JWS to partner's webhook URL
+  3. Partner verifies our signature using our public key (from our JWKS endpoint)
+  4. Partner processes the request and signs their response with their private key
+  5. We verify partner's response signature using their public key (from their JWKS)
+  6. We store both signatures in our audit trail
+
+  Result: Neither party can deny sending their message or receiving the other's message.
   ```
 
   ## Security Considerations
 
   - Use our private key (kept secret)
   - Partners fetch our public key from /.well-known/jwks.json
+  - We fetch partner's public key from their JWKS endpoint (cached)
   - Include timestamps (iat, exp) for replay protection
   - Include unique ID (jti) for idempotency
-  - Partners verify signature before processing
+  - Both signatures verified before processing
+  - Complete audit trail stored for dispute resolution
 
   ## Related Modules
 
-  - `JwsDemo.JWS.Signer` - Signs the payload
+  - `JwsDemo.JWS.Signer` - Signs our outbound payloads
+  - `JwsDemo.JWS.Verifier` - Verifies partner's response signatures
+  - `JwsDemo.JWS.JWKSCache` - Fetches and caches partner public keys
   - `JwsDemo.JWS.JWKSPublisher` - Publishes our public keys
   - `JwsDemoWeb.VerifyJWSPlug` - Receives signed requests (server-side)
 
@@ -47,6 +57,8 @@ defmodule JwsDemo.Partners.Client do
   require Logger
   alias JwsDemo.JWS.Signer
   alias JwsDemo.JWS.Audit
+  alias JwsDemo.JWS.Verifier
+  alias JwsDemo.JWS.JWKSCache
 
   @doc """
   Sends a signed request to a partner's API endpoint.
@@ -88,15 +100,18 @@ defmodule JwsDemo.Partners.Client do
       iex> response.status
       200
 
-  ## Non-Repudiation Proof
+  ## Bidirectional Non-Repudiation
 
   When we send a signed request:
   1. Partner receives JWS with our signature
   2. Partner verifies using our public key (from our JWKS endpoint)
-  3. Partner stores signed request in their audit trail
-  4. We cannot deny sending this request (cryptographic proof)
+  3. Partner signs their response with their private key
+  4. We verify partner's response using their public key (from their JWKS)
+  5. We store both signatures in our audit trail
+  6. Neither party can deny the interaction (cryptographic proof)
 
-  This is the mirror of receiving signed requests from partners.
+  This is the complete bidirectional pattern - both request and response are signed
+  and verified, providing cryptographic proof for both parties.
   """
   @spec send_signed_request(String.t(), map(), JOSE.JWK.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -154,7 +169,15 @@ defmodule JwsDemo.Partners.Client do
       {:ok, %Req.Response{status: status, body: response_body}} ->
         Logger.info("Signed request successful: status=#{status}")
 
-        # STEP 4: Create audit log if enabled
+        # STEP 4: Verify partner's signed response (if present)
+        verified_response_result =
+          if partner_id do
+            verify_partner_response(response_body, partner_id)
+          else
+            {:ok, nil}
+          end
+
+        # STEP 5: Create audit log if enabled
         if audit_enabled and partner_id do
           create_outbound_audit_log(
             payload,
@@ -163,7 +186,8 @@ defmodule JwsDemo.Partners.Client do
             partner_id,
             url,
             status,
-            response_body
+            response_body,
+            verified_response_result
           )
         end
 
@@ -171,6 +195,7 @@ defmodule JwsDemo.Partners.Client do
          %{
            status: status,
            body: response_body,
+           verified_response: verified_response_result,
            format: format,
            kid: kid
          }}
@@ -264,6 +289,67 @@ defmodule JwsDemo.Partners.Client do
 
   # Private functions
 
+  # Verify partner's signed response
+  defp verify_partner_response(response_body, partner_id) when is_map(response_body) do
+    # Check if response contains JWS signature
+    case response_body do
+      %{"jws" => jws_string} when is_binary(jws_string) ->
+        verify_partner_jws(jws_string, partner_id)
+
+      %{"protected" => _, "payload" => _, "signature" => _} = jws_flattened ->
+        verify_partner_jws(jws_flattened, partner_id)
+
+      _ ->
+        Logger.warning("Partner response not signed (no JWS found): partner_id=#{partner_id}")
+        {:error, :response_not_signed}
+    end
+  end
+
+  defp verify_partner_response(_response_body, _partner_id) do
+    {:error, :invalid_response_format}
+  end
+
+  defp verify_partner_jws(jws, partner_id) do
+    # Extract kid from JWS header
+    with {:ok, header} <- extract_jws_header(jws),
+         {:ok, kid} <- Map.fetch(header, "kid"),
+         {:ok, partner_jwk} <- JWKSCache.get_key(partner_id, kid),
+         {:ok, verified_payload} <- Verifier.verify(jws, partner_jwk) do
+      Logger.info("Partner response signature verified: partner_id=#{partner_id}, kid=#{kid}")
+      {:ok, %{verified_payload: verified_payload, kid: kid}}
+    else
+      {:error, reason} ->
+        Logger.error("Partner response signature verification failed: #{inspect(reason)}")
+        {:error, {:verification_failed, reason}}
+
+      :error ->
+        Logger.error("Partner response missing kid in JWS header")
+        {:error, :missing_kid}
+    end
+  end
+
+  defp extract_jws_header(jws) when is_binary(jws) do
+    case String.split(jws, ".") do
+      [header_b64, _, _] ->
+        with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
+             {:ok, header} <- Jason.decode(header_json) do
+          {:ok, header}
+        end
+
+      _ ->
+        {:error, :invalid_jws_format}
+    end
+  end
+
+  defp extract_jws_header(%{"protected" => protected_b64}) when is_binary(protected_b64) do
+    with {:ok, header_json} <- Base.url_decode64(protected_b64, padding: false),
+         {:ok, header} <- Jason.decode(header_json) do
+      {:ok, header}
+    end
+  end
+
+  defp extract_jws_header(_), do: {:error, :invalid_jws_format}
+
   # Create audit log for outbound request
   defp create_outbound_audit_log(
          _payload,
@@ -272,7 +358,8 @@ defmodule JwsDemo.Partners.Client do
          partner_id,
          url,
          status,
-         response_body
+         response_body,
+         verified_response_result
        ) do
     # Get the verified payload (add automatic claims that were added during signing)
     # We need to reconstruct this from the JWS to get iat, exp, jti
@@ -287,16 +374,39 @@ defmodule JwsDemo.Partners.Client do
     # Add instruction_id to verified_payload for audit logging
     verified_payload_with_id = Map.put(verified_payload, "instruction_id", instruction_id)
 
-    metadata = %{
-      partner_id: partner_id,
-      jws_signature: jws_signature,
-      verification_algorithm: "ES256",
-      verification_kid: verified_payload["kid"],
-      direction: "outbound",
-      uri: url,
-      response_status: status,
-      response_body: if(is_map(response_body), do: response_body, else: nil)
-    }
+    # Include verified response data if signature verification succeeded
+    verified_response_metadata =
+      case verified_response_result do
+        {:ok, %{verified_payload: verified_resp, kid: resp_kid}} ->
+          %{
+            response_signature_verified: true,
+            response_verified_payload: verified_resp,
+            response_verification_kid: resp_kid
+          }
+
+        {:ok, nil} ->
+          # No partner_id provided, skip verification
+          %{}
+
+        {:error, reason} ->
+          %{
+            response_signature_verified: false,
+            response_verification_error: inspect(reason)
+          }
+      end
+
+    metadata =
+      %{
+        partner_id: partner_id,
+        jws_signature: jws_signature,
+        verification_algorithm: "ES256",
+        verification_kid: verified_payload["kid"],
+        direction: "outbound",
+        uri: url,
+        response_status: status,
+        response_body: if(is_map(response_body), do: response_body, else: nil)
+      }
+      |> Map.merge(verified_response_metadata)
 
     case Audit.log_authorization(verified_payload_with_id, private_key, metadata) do
       {:ok, audit_log} ->
