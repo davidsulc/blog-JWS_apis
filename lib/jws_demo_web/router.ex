@@ -12,9 +12,17 @@ defmodule JwsDemoWeb.Router do
     plug JwsDemoWeb.VerifyJWSPlug, get_jwk: &JwsDemo.JWS.JWKSCache.get_key/2
   end
 
+  # Pipeline for public JWKS endpoint with rate limiting
+  # Protects against DoS attacks while allowing legitimate partner access
+  pipeline :jwks_public do
+    plug :accepts, ["json"]
+    # Rate limit: 100 requests per 60 seconds per IP
+    plug JwsDemoWeb.RateLimitPlug, max_requests: 100, window_seconds: 60
+  end
+
   # JWKS endpoint (standard location per RFC 8414)
   scope "/.well-known", JwsDemoWeb do
-    pipe_through :api
+    pipe_through :jwks_public
 
     get "/jwks.json", JWKSController, :index
   end
