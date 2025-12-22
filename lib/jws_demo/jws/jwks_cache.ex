@@ -55,6 +55,10 @@ defmodule JwsDemo.JWS.JWKSCache do
   use GenServer
   require Logger
 
+  import Ecto.Query
+  alias JwsDemo.Repo
+  alias JwsDemo.Partners.Partner
+
   # 15 minutes
   @default_ttl 900
   # 24 hours
@@ -180,9 +184,39 @@ defmodule JwsDemo.JWS.JWKSCache do
   def handle_cast(:warm_cache, state) do
     Logger.info("JWKS cache warming started")
 
-    # In production, fetch list of partners from database
-    # For demo, we'll just log
-    Logger.info("JWKS cache warming complete (demo: no partners configured)")
+    # Fetch all active partners from database
+    partners =
+      Repo.all(
+        from p in Partner,
+          where: p.active == true,
+          preload: [:config]
+      )
+
+    Logger.info("Found #{length(partners)} active partners to warm cache")
+
+    # Attempt to fetch JWKS for each partner
+    results =
+      Enum.map(partners, fn partner ->
+        case fetch_and_cache_jwks(partner.partner_id) do
+          :ok ->
+            Logger.info("JWKS cache warmed successfully: #{partner.partner_id}")
+            {:ok, partner.partner_id}
+
+          {:error, reason} ->
+            Logger.warning(
+              "JWKS cache warming failed for #{partner.partner_id}: #{inspect(reason)}"
+            )
+
+            {:error, partner.partner_id, reason}
+        end
+      end)
+
+    success_count = Enum.count(results, fn r -> match?({:ok, _}, r) end)
+    failure_count = length(results) - success_count
+
+    Logger.info(
+      "JWKS cache warming complete: #{success_count} succeeded, #{failure_count} failed"
+    )
 
     {:noreply, state}
   end
