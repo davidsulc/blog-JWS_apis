@@ -134,18 +134,35 @@ defmodule JwsDemoWeb.JWKSControllerTest do
   end
 
   describe "error handling" do
-    test "returns default key for unknown kid" do
-      # NOTE: In this demo, unknown kids fall back to the default demo key.
-      # In production with database-backed keys, you would handle missing
-      # keys differently (skip them or return error).
+    test "publisher caches keys on startup" do
+      # VERIFY: Publisher returns cached JWKS
+      assert {:ok, jwks} = JWKSPublisher.get_jwks()
+      assert %{"keys" => keys} = jwks
+      assert length(keys) > 0
 
-      # Verify the publisher returns default key for unknown kid
-      assert {:ok, jwks} = JWKSPublisher.get_jwks(["unknown-kid-12345"])
-      assert %{"keys" => [key]} = jwks
-      assert key["kid"] == "unknown-kid-12345"
+      # VERIFY: All keys have valid kid
+      Enum.each(keys, fn key ->
+        assert is_binary(key["kid"])
+        assert key["kid"] != ""
+      end)
 
-      # LESSON: This demo uses a fallback strategy. In production, you might
-      # want to skip unknown kids or return errors for better security.
+      # LESSON: Keys are loaded once on startup and cached in memory,
+      # avoiding disk I/O on every request (performance optimization).
+    end
+
+    test "reload_keys updates cache" do
+      # REQUEST: Reload keys
+      assert :ok = JWKSPublisher.reload_keys()
+
+      # Give GenServer time to process cast
+      Process.sleep(10)
+
+      # VERIFY: Still returns valid JWKS
+      assert {:ok, jwks} = JWKSPublisher.get_jwks()
+      assert %{"keys" => _keys} = jwks
+
+      # LESSON: reload_keys() should be called after key rotation to
+      # refresh the published JWKS without restarting the application.
     end
   end
 end

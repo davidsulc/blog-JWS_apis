@@ -1,13 +1,20 @@
 defmodule JwsDemo.JWS.JWKSPublisher do
   @moduledoc """
-  Publishes public keys in JWKS (JSON Web Key Set) format.
+  Publishes public keys in JWKS (JSON Web Key Set) format with in-memory caching.
 
   JWKS is the standard format for publishing public keys that partners use to
   verify JWS signatures. This module demonstrates:
   - Reading EC public keys from PEM files
   - Converting JOSE.JWK to JWKS format
+  - In-memory caching for performance (avoids disk I/O on every request)
   - Supporting multiple keys for zero-downtime rotation
   - Proper key metadata (kid, alg, use)
+
+  ## Performance
+
+  Keys are loaded from disk once on GenServer startup and cached in process state.
+  Subsequent requests return cached JWKS immediately (~microseconds vs ~milliseconds
+  for file I/O + PEM parsing).
 
   ## JWKS Format
 
@@ -34,7 +41,8 @@ defmodule JwsDemo.JWS.JWKSPublisher do
   1. Publish new key (kid: "2025-02") alongside old key (kid: "2025-01")
   2. Partners cache both keys
   3. Start signing with new key
-  4. After cache TTL expires, remove old key
+  4. Call `reload_keys/0` to refresh the cache
+  5. After partner cache TTL expires, remove old key
 
   This enables zero-downtime key rotation.
 
@@ -47,37 +55,93 @@ defmodule JwsDemo.JWS.JWKSPublisher do
 
   ## Examples
 
-      # Get current JWKS
+      # Get current JWKS (from cache)
       {:ok, jwks} = JWKSPublisher.get_jwks()
       assert %{"keys" => [%{"kid" => "demo-2025-01"}]} = jwks
 
-      # Get JWKS for specific key IDs
-      {:ok, jwks} = JWKSPublisher.get_jwks(["demo-2025-01", "demo-2025-02"])
+      # Reload keys after rotation
+      :ok = JWKSPublisher.reload_keys()
 
   """
+
+  use GenServer
+  require Logger
+
+  # Client API
+
+  @doc """
+  Starts the JWKS publisher GenServer.
+  """
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
 
   @doc """
   Returns JWKS for all configured public keys.
 
-  Reads public keys from priv/keys directory and converts to JWKS format.
+  Returns cached JWKS from GenServer state (fast, no disk I/O).
   """
   @spec get_jwks() :: {:ok, map()} | {:error, term()}
   def get_jwks do
-    get_jwks(["demo-2025-01"])
+    GenServer.call(__MODULE__, :get_jwks)
   end
 
   @doc """
-  Returns JWKS for specified key IDs.
+  Reloads keys from disk and updates cache.
 
-  ## Parameters
-  - `key_ids` - List of key IDs to include in JWKS
-
-  ## Returns
-  - `{:ok, jwks}` - JWKS object with "keys" array
-  - `{:error, reason}` - If key loading fails
+  Call this after key rotation to refresh the published JWKS.
   """
-  @spec get_jwks(list(String.t())) :: {:ok, map()} | {:error, term()}
-  def get_jwks(key_ids) do
+  @spec reload_keys() :: :ok
+  def reload_keys do
+    GenServer.cast(__MODULE__, :reload_keys)
+  end
+
+  # Server Callbacks
+
+  @impl true
+  def init(_opts) do
+    # Load keys on startup
+    case load_all_keys() do
+      {:ok, jwks} ->
+        Logger.info("JWKS publisher started with #{length(jwks["keys"])} keys")
+        {:ok, %{jwks: jwks}}
+
+      {:error, reason} ->
+        Logger.error("JWKS publisher failed to load keys: #{inspect(reason)}")
+        # Start with empty JWKS rather than failing
+        {:ok, %{jwks: %{"keys" => []}}}
+    end
+  end
+
+  @impl true
+  def handle_call(:get_jwks, _from, state) do
+    {:reply, {:ok, state.jwks}, state}
+  end
+
+  @impl true
+  def handle_cast(:reload_keys, state) do
+    Logger.info("JWKS publisher reloading keys")
+
+    case load_all_keys() do
+      {:ok, jwks} ->
+        Logger.info("JWKS publisher reloaded #{length(jwks["keys"])} keys")
+        {:noreply, %{state | jwks: jwks}}
+
+      {:error, reason} ->
+        Logger.error("JWKS publisher failed to reload keys: #{inspect(reason)}")
+        # Keep existing cache on reload failure
+        {:noreply, state}
+    end
+  end
+
+  # Private functions
+
+  # Load all configured keys from disk
+  defp load_all_keys do
+    # In production, query database for list of active key IDs
+    # For demo, use hardcoded list
+    key_ids = ["demo-2025-01"]
+
     keys =
       Enum.map(key_ids, fn kid ->
         case load_public_key(kid) do
@@ -96,8 +160,6 @@ defmodule JwsDemo.JWS.JWKSPublisher do
       keys -> {:ok, %{"keys" => keys}}
     end
   end
-
-  # Private functions
 
   # Load public key from PEM file
   defp load_public_key(kid) do

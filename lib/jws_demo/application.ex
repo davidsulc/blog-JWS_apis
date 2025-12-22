@@ -14,6 +14,8 @@ defmodule JwsDemo.Application do
       {Phoenix.PubSub, name: JwsDemo.PubSub},
       # JWKS cache for multi-tenant key management
       JwsDemo.JWS.JWKSCache,
+      # JWKS publisher for serving our public keys
+      JwsDemo.JWS.JWKSPublisher,
       # Start to serve requests, typically the last entry
       JwsDemoWeb.Endpoint
     ]
