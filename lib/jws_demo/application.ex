@@ -21,7 +21,15 @@ defmodule JwsDemo.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: JwsDemo.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      # Warm JWKS cache after startup to prevent cold-start latency
+      # In demo mode, this logs but doesn't fetch real endpoints
+      # In production, this would preload all partner JWKS
+      JwsDemo.JWS.JWKSCache.warm_cache()
+
+      {:ok, pid}
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration
