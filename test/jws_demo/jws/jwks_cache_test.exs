@@ -237,4 +237,123 @@ defmodule JwsDemo.JWS.JWKSCacheTest do
       # critical for high-throughput API endpoints.
     end
   end
+
+  describe "security: emergency purge" do
+    test "emergency_purge removes all keys for a partner" do
+      # SETUP: Cache multiple keys for a partner
+      jwk1 = JOSE.JWK.generate_key({:ec, :secp256r1})
+      jwk2 = JOSE.JWK.generate_key({:ec, :secp256r1})
+      jwk3 = JOSE.JWK.generate_key({:ec, :secp256r1})
+
+      now = System.system_time(:second)
+      ttl = 900
+
+      # Partner with multiple keys (rotation scenario)
+      :ets.insert(:jwks_cache, {{"partner_compromised", "key1"}, jwk1, now, ttl})
+      :ets.insert(:jwks_cache, {{"partner_compromised", "key2"}, jwk2, now, ttl})
+
+      # Different partner (should NOT be affected)
+      :ets.insert(:jwks_cache, {{"partner_safe", "key1"}, jwk3, now, ttl})
+
+      # VERIFY: Keys exist before purge
+      assert {:ok, _} = JWKSCache.get_key("partner_compromised", "key1")
+      assert {:ok, _} = JWKSCache.get_key("partner_compromised", "key2")
+      assert {:ok, _} = JWKSCache.get_key("partner_safe", "key1")
+
+      # REQUEST: Emergency purge for compromised partner - capture audit log
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   JWKSCache.emergency_purge(
+                     "partner_compromised",
+                     "ops.alice@example.com",
+                     "INC-2025-001: Private key compromise confirmed by partner security"
+                   )
+        end)
+
+      # VERIFY: Compromised partner's keys removed
+      assert {:error, _} = JWKSCache.get_key("partner_compromised", "key1")
+      assert {:error, _} = JWKSCache.get_key("partner_compromised", "key2")
+
+      # VERIFY: Other partner's keys unaffected
+      assert {:ok, _} = JWKSCache.get_key("partner_safe", "key1")
+
+      # VERIFY: Audit log contains security event details
+      assert log =~ "EMERGENCY JWKS CACHE PURGE"
+      assert log =~ "partner_compromised"
+      assert log =~ "ops.alice@example.com"
+      assert log =~ "INC-2025-001"
+      assert log =~ "Purged 2 keys"
+
+      # LESSON: Emergency purge removes ALL cached keys for a partner,
+      # forcing fresh JWKS fetch. This prevents accepting signatures from
+      # compromised private keys during security incidents.
+    end
+
+    test "emergency_purge with no cached keys completes successfully" do
+      # REQUEST: Purge partner with no cached keys
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   JWKSCache.emergency_purge(
+                     "partner_not_cached",
+                     "ops.bob@example.com",
+                     "INC-2025-002: Precautionary purge"
+                   )
+        end)
+
+      # VERIFY: Completes successfully
+      assert log =~ "Purged 0 keys"
+
+      # LESSON: Purge is idempotent and safe even if no keys are cached.
+    end
+
+    test "stale cache triggers telemetry alerts" do
+      # SETUP: Attach telemetry handler to capture events
+      test_pid = self()
+
+      :telemetry.attach(
+        "jwks-cache-test-handler",
+        [:jwks_cache, :stale_grace_period],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      # SETUP: Insert stale entry (expired but within grace period)
+      jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
+      partner_id = "partner_stale_alert"
+      kid = "stale-key"
+
+      # Cache entry from 5 hours ago (triggers CRITICAL severity)
+      cached_at = System.system_time(:second) - 18_000
+      ttl = 900
+
+      cache_key = {partner_id, kid}
+      :ets.insert(:jwks_cache, {cache_key, jwk, cached_at, ttl})
+
+      # REQUEST: Get key (should trigger telemetry alert)
+      capture_log(fn ->
+        {:ok, _} = JWKSCache.get_key(partner_id, kid)
+        # Wait for async refresh
+        Process.sleep(50)
+      end)
+
+      # VERIFY: Telemetry event emitted
+      assert_receive {:telemetry_event, [:jwks_cache, :stale_grace_period], measurements,
+                      metadata}
+
+      assert measurements.age_seconds >= 18_000
+      assert metadata.partner_id == partner_id
+      assert metadata.kid == kid
+      assert metadata.severity == :critical
+
+      # CLEANUP
+      :telemetry.detach("jwks-cache-test-handler")
+
+      # LESSON: Telemetry events enable monitoring systems (Datadog, New Relic)
+      # to alert ops teams when cache enters stale grace period.
+    end
+  end
 end

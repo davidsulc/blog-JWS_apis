@@ -114,6 +114,44 @@ defmodule JwsDemo.JWS.JWKSCache do
     GenServer.cast(__MODULE__, :warm_cache)
   end
 
+  @doc """
+  Immediately purges JWKS cache for a partner during security incidents.
+
+  Use when partner confirms:
+  - Private key compromise
+  - Security breach
+  - Unauthorized access
+
+  This forces fresh JWKS fetch on next request. If fetch fails,
+  requests return 401 until JWKS is successfully retrieved.
+
+  ## Authorization Required
+  - Senior ops approval
+  - Incident ticket reference
+  - Business justification
+
+  ## Audit Trail
+  All purges logged with timestamp, operator, and reason.
+
+  ## Parameters
+  - `partner_id` - Partner identifier to purge
+  - `operator` - Name/ID of person executing purge
+  - `reason` - Business justification (incident ticket, etc.)
+
+  ## Examples
+
+      JWKSCache.emergency_purge(
+        "partner_abc",
+        "ops.alice@example.com",
+        "INC-2025-001: Partner confirmed private key compromise"
+      )
+
+  """
+  @spec emergency_purge(String.t(), String.t(), String.t()) :: :ok
+  def emergency_purge(partner_id, operator, reason) do
+    GenServer.call(__MODULE__, {:emergency_purge, partner_id, operator, reason})
+  end
+
   # Server Callbacks
 
   @impl true
@@ -124,6 +162,37 @@ defmodule JwsDemo.JWS.JWKSCache do
     Logger.info("JWKS cache started with ETS table: #{@table_name}")
 
     {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_call({:emergency_purge, partner_id, operator, reason}, _from, state) do
+    Logger.warning("""
+    🚨 EMERGENCY JWKS CACHE PURGE
+    Partner: #{partner_id}
+    Operator: #{operator}
+    Reason: #{reason}
+    Timestamp: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    """)
+
+    # Count keys being purged for logging
+    purged_count =
+      :ets.select_delete(@table_name, [
+        {{{:"$1", :_}, :_, :_, :_}, [{:==, :"$1", partner_id}], [true]}
+      ])
+
+    Logger.warning("Purged #{purged_count} keys for partner: #{partner_id}")
+
+    # Emit telemetry event for monitoring
+    :telemetry.execute(
+      [:jwks_cache, :emergency_purge],
+      %{purged_keys: purged_count},
+      %{partner_id: partner_id, operator: operator, reason: reason}
+    )
+
+    # Log to audit trail (structured log that can be ingested by SIEM)
+    log_cache_purge(partner_id, operator, reason, purged_count)
+
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -143,6 +212,9 @@ defmodule JwsDemo.JWS.JWKSCache do
 
           # Stale but within grace period: return stale + trigger refresh
           age < @stale_grace_period ->
+            # Alert ops team with severity based on cache age
+            alert_stale_cache(partner_id, kid, age, cached_at)
+
             Logger.warning(
               "JWKS cache HIT (stale): #{partner_id}/#{kid}, age: #{age}s, triggering refresh"
             )
@@ -185,12 +257,19 @@ defmodule JwsDemo.JWS.JWKSCache do
     Logger.info("JWKS cache warming started")
 
     # Fetch all active partners from database
+    # Handle database connection errors gracefully (e.g., during test startup)
     partners =
-      Repo.all(
-        from p in Partner,
-          where: p.active == true,
-          preload: [:config]
-      )
+      try do
+        Repo.all(
+          from p in Partner,
+            where: p.active == true,
+            preload: [:config]
+        )
+      rescue
+        error ->
+          Logger.warning("JWKS cache warming: database not available (#{inspect(error)})")
+          []
+      end
 
     Logger.info("Found #{length(partners)} active partners to warm cache")
 
@@ -333,5 +412,83 @@ defmodule JwsDemo.JWS.JWKSCache do
       _ ->
         {:error, :invalid_jwks_format}
     end
+  end
+
+  # Alert ops when cache enters stale grace period
+  defp alert_stale_cache(partner_id, kid, age_seconds, cached_at) do
+    # Calculate severity based on age
+    severity =
+      cond do
+        age_seconds < 3600 -> :warning
+        age_seconds < 14_400 -> :error
+        age_seconds < 43_200 -> :critical
+        true -> :emergency
+      end
+
+    # Emit telemetry for monitoring/alerting systems
+    :telemetry.execute(
+      [:jwks_cache, :stale_grace_period],
+      %{age_seconds: age_seconds},
+      %{
+        partner_id: partner_id,
+        kid: kid,
+        severity: severity,
+        cached_at: cached_at
+      }
+    )
+
+    # Structured log for SIEM ingestion
+    if severity in [:critical, :emergency] do
+      Logger.log(severity, """
+      ⚠️  JWKS CACHE STALE GRACE PERIOD ACTIVE
+      Partner: #{partner_id}
+      Key ID: #{kid}
+      Cache age: #{format_duration(age_seconds)}
+      Severity: #{severity}
+      Last cached: #{format_timestamp(cached_at)}
+
+      ACTION REQUIRED:
+      1. Contact partner security team (out-of-band)
+      2. Verify JWKS endpoint status
+      3. Confirm no security incident
+      4. If key compromise confirmed: JWKSCache.emergency_purge("#{partner_id}", "your_name", "reason")
+      """)
+    end
+  end
+
+  # Log cache purge to audit trail
+  defp log_cache_purge(partner_id, operator, reason, purged_count) do
+    # Structured log for audit trail (ingested by SIEM/log aggregation)
+    Logger.warning(
+      "JWKS cache emergency purge executed",
+      event: "jwks_cache_purge",
+      partner_id: partner_id,
+      operator: operator,
+      reason: reason,
+      purged_keys: purged_count,
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    )
+
+    # In production, also write to dedicated audit table:
+    # Audit.log_operational_event(%{
+    #   event_type: "jwks_cache_purge",
+    #   partner_id: partner_id,
+    #   operator: operator,
+    #   reason: reason,
+    #   metadata: %{purged_keys: purged_count}
+    # })
+  end
+
+  # Format duration in human-readable form
+  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
+  defp format_duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+  defp format_duration(seconds) when seconds < 86_400, do: "#{div(seconds, 3600)}h"
+  defp format_duration(seconds), do: "#{div(seconds, 86_400)}d #{rem(div(seconds, 3600), 24)}h"
+
+  # Format unix timestamp to ISO8601
+  defp format_timestamp(unix_seconds) do
+    unix_seconds
+    |> DateTime.from_unix!()
+    |> DateTime.to_iso8601()
   end
 end

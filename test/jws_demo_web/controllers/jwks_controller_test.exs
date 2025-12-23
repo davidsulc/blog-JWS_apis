@@ -145,7 +145,7 @@ defmodule JwsDemoWeb.JWKSControllerTest do
       # LESSON: Rate limiting allows legitimate traffic through.
     end
 
-    test "returns 429 when rate limit exceeded", %{conn: conn} do
+    test "returns 429 when rate limit exceeded", %{conn: _conn} do
       # NOTE: This test would need to make 101+ requests to trigger the rate limit.
       # For demo purposes, we verify the rate limiter is present via the pipeline.
 

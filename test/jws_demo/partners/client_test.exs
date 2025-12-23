@@ -30,7 +30,8 @@ defmodule JwsDemo.Partners.ClientTest do
 
       # SIMULATE: Send to mock partner endpoint
       # In production, this would be an actual HTTPS URL
-      mock_url = "http://localhost:4000/mock/partner/webhooks"
+      # Use test server port (4002) configured in config/test.exs
+      mock_url = "http://localhost:4002/mock/partner/webhooks"
 
       # ACT: Send signed request
       # Note: This will get a 401 response because the test key isn't in the JWKS cache
