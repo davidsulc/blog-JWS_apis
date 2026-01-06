@@ -356,4 +356,94 @@ defmodule JwsDemo.JWS.JWKSCacheTest do
       # to alert ops teams when cache enters stale grace period.
     end
   end
+
+  describe "cache-control TTL parsing" do
+    # Note: parse_cache_control_ttl/1 is marked @doc false (internal function)
+    # but is public for testing purposes
+    import JWKSCache, only: [parse_cache_control_ttl: 1]
+
+    defp assert_no_valid_ttl(headers) do
+      assert {:error, :no_valid_ttl} = parse_cache_control_ttl(headers)
+    end
+
+    test "parses max-age from simple Cache-Control header" do
+      headers = [{"cache-control", "max-age=3600"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 3600}
+    end
+
+    test "parses max-age from Cache-Control with multiple directives" do
+      headers = [{"cache-control", "public, max-age=1800, must-revalidate"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 1800}
+    end
+
+    test "parses max-age with whitespace variations" do
+      headers = [{"cache-control", " max-age=7200 , public"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 7200}
+    end
+
+    test "handles max-age at end of directive list" do
+      headers = [{"cache-control", "public, must-revalidate, max-age=900"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 900}
+    end
+
+    test "returns error when no Cache-Control header present" do
+      assert_no_valid_ttl([{"content-type", "application/json"}])
+    end
+
+    test "returns error when Cache-Control has no max-age" do
+      assert_no_valid_ttl([{"cache-control", "public, must-revalidate"}])
+    end
+
+    test "returns error for invalid max-age values" do
+      # Non-numeric value
+      assert_no_valid_ttl([{"cache-control", "max-age=invalid"}])
+
+      # Negative value (not allowed)
+      assert_no_valid_ttl([{"cache-control", "max-age=-100"}])
+
+      # Zero value (not allowed, must be > 0)
+      assert_no_valid_ttl([{"cache-control", "max-age=0"}])
+    end
+
+    test "case-insensitive header name matching" do
+      # lowercase
+      headers = [{"cache-control", "max-age=1200"}]
+      assert parse_cache_control_ttl(headers) == {:ok, 1200}
+
+      # uppercase
+      headers = [{"CACHE-CONTROL", "max-age=1200"}]
+      assert parse_cache_control_ttl(headers) == {:ok, 1200}
+
+      # mixed case
+      headers = [{"Cache-Control", "max-age=1200"}]
+      assert parse_cache_control_ttl(headers) == {:ok, 1200}
+    end
+
+    test "handles very short TTL for frequently rotating keys" do
+      headers = [{"cache-control", "max-age=300"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 300}
+    end
+
+    test "handles very long TTL for stable keys" do
+      headers = [{"cache-control", "max-age=86400"}]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 86400}
+    end
+
+    test "handles multiple cache-control headers (uses first)" do
+      # HTTP allows duplicate headers, we should handle gracefully
+      headers = [
+        {"cache-control", "max-age=1200"},
+        {"content-type", "application/json"},
+        {"cache-control", "max-age=3600"}
+      ]
+
+      assert parse_cache_control_ttl(headers) == {:ok, 1200}
+    end
+  end
 end

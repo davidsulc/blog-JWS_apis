@@ -4,7 +4,7 @@ defmodule JwsDemo.JWS.JWKSCache do
 
   This GenServer demonstrates:
   - Per-partner JWKS caching for performance
-  - TTL-based expiration (15 minutes default)
+  - TTL-based expiration (respects Cache-Control max-age, 15 minutes default)
   - Stale-while-revalidate pattern for zero-downtime
   - Graceful degradation when JWKS fetch fails
   - ETS storage for concurrent reads
@@ -327,10 +327,10 @@ defmodule JwsDemo.JWS.JWKSCache do
     case get_partner_jwks_url(partner_id) do
       {:ok, jwks_url} ->
         case fetch_jwks(jwks_url) do
-          {:ok, jwks} ->
+          {:ok, jwks, ttl} ->
             # NOTE: In demo mode, fetch_jwks always returns error, so this branch is unreachable.
             # In production, this would cache the successfully fetched JWKS.
-            cache_jwks(partner_id, jwks)
+            cache_jwks(partner_id, jwks, ttl)
 
           {:error, reason} ->
             {:error, {:jwks_fetch_failed, reason}}
@@ -368,8 +368,15 @@ defmodule JwsDemo.JWS.JWKSCache do
              retry: :transient,
              max_retries: 2
            ) do
-        {:ok, %Req.Response{status: 200, body: jwks}} when is_map(jwks) ->
-          {:ok, jwks}
+        {:ok, %Req.Response{status: 200, body: jwks, headers: headers}} when is_map(jwks) ->
+          # Extract TTL from Cache-Control header, fallback to default
+          ttl =
+            case parse_cache_control_ttl(headers) do
+              {:ok, ttl} -> ttl
+              _ -> @default_ttl
+            end
+
+          {:ok, jwks, ttl}
 
         {:ok, %Req.Response{status: status}} ->
           {:error, {:http_status, status}}
@@ -383,9 +390,8 @@ defmodule JwsDemo.JWS.JWKSCache do
   end
 
   # Cache all keys from JWKS
-  defp cache_jwks(partner_id, jwks) do
+  defp cache_jwks(partner_id, jwks, ttl) do
     now = System.system_time(:second)
-    ttl = @default_ttl
 
     # Parse JWKS and cache each key
     case jwks do
@@ -400,7 +406,7 @@ defmodule JwsDemo.JWS.JWKSCache do
               cache_key = {partner_id, kid}
               :ets.insert(@table_name, {cache_key, jwk, now, ttl})
 
-              Logger.debug("Cached JWKS key: #{partner_id}/#{kid}")
+              Logger.debug("Cached JWKS key: #{partner_id}/#{kid} (TTL: #{ttl}s)")
 
             _ ->
               Logger.warning("JWKS key missing kid: #{inspect(key)}")
@@ -411,6 +417,59 @@ defmodule JwsDemo.JWS.JWKSCache do
 
       _ ->
         {:error, :invalid_jwks_format}
+    end
+  end
+
+  # Parse TTL from Cache-Control header
+  @doc false
+  def parse_cache_control_ttl(headers) do
+    with {:ok, cache_control} <- find_cache_control_header(headers),
+        {:ok, ttl} <- parse_max_age(cache_control) do
+      {:ok, ttl}
+    else
+      _ -> {:error, :no_valid_ttl}
+    end
+  end
+
+  # Find Cache-Control header value (case-insensitive)
+  defp find_cache_control_header(headers) do
+    case Enum.find_value(headers, fn {key, value} ->
+           if String.downcase(key) == "cache-control", do: value
+         end) do
+      nil -> {:error, :not_found}
+      value -> {:ok, value}
+    end
+  end
+
+  # Parse max-age directive from Cache-Control value
+  defp parse_max_age(cache_control) when is_binary(cache_control) do
+    with {:ok, max_age_directive} <- find_max_age_directive(cache_control) do
+      parse_ttl(max_age_directive)
+    end
+  end
+
+  defp parse_max_age(_), do: {:error, :invalid_input}
+
+  # Find max-age directive from Cache-Control directives
+  defp find_max_age_directive(cache_control) do
+    directive =
+      cache_control
+      |> String.split(",", trim: true)
+      # |> Enum.find(&Regex.match?(~r/^\s*max-age=/i, &1))
+      |> Enum.find(& &1 |> String.trim_leading() |> String.starts_with?("max-age="))
+
+    case directive do
+      nil -> {:error, :not_found}
+      directive -> {:ok, String.trim(directive)}
+    end
+  end
+
+  # Parse TTL value from max-age directive
+  defp parse_ttl("max-age=" <> ttl_string) do
+    with {ttl, ""} when ttl > 0 <- Integer.parse(ttl_string) do
+      {:ok, ttl}
+    else
+      _ -> {:error, :invalid_format}
     end
   end
 
