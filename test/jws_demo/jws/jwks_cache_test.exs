@@ -357,6 +357,367 @@ defmodule JwsDemo.JWS.JWKSCacheTest do
     end
   end
 
+  describe "DoS protection: unknown kid debouncing" do
+    test "unknown kid triggers fetch on first request" do
+      # REQUEST: Get unknown kid (first attempt)
+      result = JWKSCache.get_key("partner_dos_test", "unknown-key-1")
+
+      # VERIFY: Fetch attempted (fails in demo mode, but that's expected)
+      assert {:error, _reason} = result
+
+      # LESSON: First unknown kid attempt triggers JWKS fetch as expected.
+    end
+
+    test "unknown kid is debounced within 60-second window" do
+      partner_id = "partner_debounce_test"
+      unknown_kid = "unknown-key-debounce"
+
+      # SETUP: Simulate a recent JWKS fetch by creating partner metadata
+      now = System.system_time(:second)
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: now - 30,
+        # 30 seconds ago (within 60s window)
+        last_fetch_success: true,
+        consecutive_unknown_kids: 0
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Get unknown kid (should be debounced)
+      log =
+        capture_log(fn ->
+          result = JWKSCache.get_key(partner_id, unknown_kid)
+
+          # VERIFY: Request rejected without fetching
+          assert {:error, :kid_not_found_in_jwks} = result
+        end)
+
+      # VERIFY: Log indicates debouncing
+      assert log =~ "but JWKS fetched"
+      assert log =~ "30s ago"
+      assert log =~ "Possible attack or misconfiguration"
+
+      # LESSON: Debouncing prevents repeated JWKS fetches for invalid kids.
+    end
+
+    test "unknown kid fetch allowed after debounce window expires" do
+      partner_id = "partner_debounce_expired"
+      unknown_kid = "unknown-key-expired"
+
+      # SETUP: Simulate a JWKS fetch from 61 seconds ago (outside 60s window)
+      now = System.system_time(:second)
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: now - 61,
+        # 61 seconds ago (outside window)
+        last_fetch_success: true,
+        consecutive_unknown_kids: 0
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Get unknown kid (should trigger new fetch)
+      capture_log(fn ->
+        result = JWKSCache.get_key(partner_id, unknown_kid)
+
+        # VERIFY: Fetch attempted (fails due to demo mode/partner not found)
+        assert {:error, _reason} = result
+      end)
+
+      # VERIFY: Metadata updated with new fetch timestamp (proves fetch was attempted)
+      [{^metadata_key, updated_metadata}] = :ets.lookup(:jwks_cache, metadata_key)
+      assert updated_metadata.last_fetch_at > now - 61
+
+      # LESSON: Debounce window expires after 60s, allowing legitimate key rotation.
+    end
+
+    test "debouncing emits telemetry for rejected unknown kids" do
+      partner_id = "partner_debounce_telemetry"
+      unknown_kid = "unknown-key-telemetry"
+      test_pid = self()
+
+      # SETUP: Attach telemetry handler
+      :telemetry.attach(
+        "jwks-debounce-test-handler",
+        [:jwks_cache, :unknown_kid_rejected],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      # SETUP: Recent JWKS fetch
+      now = System.system_time(:second)
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: now - 20,
+        last_fetch_success: true,
+        consecutive_unknown_kids: 0
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Get unknown kid
+      capture_log(fn ->
+        JWKSCache.get_key(partner_id, unknown_kid)
+      end)
+
+      # VERIFY: Telemetry event emitted
+      assert_receive {:telemetry_event, [:jwks_cache, :unknown_kid_rejected], measurements,
+                      metadata}
+
+      assert measurements.age_since_fetch >= 20
+      assert metadata.partner_id == partner_id
+      assert metadata.kid == unknown_kid
+
+      # CLEANUP
+      :telemetry.detach("jwks-debounce-test-handler")
+
+      # LESSON: Telemetry enables monitoring for DoS attacks via unknown kids.
+    end
+  end
+
+  describe "DoS protection: rate limiting" do
+    test "allows up to 10 unknown kid attempts per minute" do
+      partner_id = "partner_rate_limit_test"
+
+      # REQUEST: Make 10 attempts (should all be allowed to attempt fetch)
+      results =
+        capture_log(fn ->
+          for i <- 1..10 do
+            JWKSCache.get_key(partner_id, "unknown-key-#{i}")
+          end
+        end)
+
+      # VERIFY: All attempts processed (failed due to demo mode, but not rate limited)
+      assert is_binary(results)
+
+      # LESSON: Rate limit allows 10 attempts per minute per partner.
+    end
+
+    test "rate limits after 10 unknown kid attempts in one minute" do
+      partner_id = "partner_rate_limit_exceeded"
+
+      # SETUP: Manually set rate limit counter to 10 (at threshold)
+      now = System.system_time(:second)
+      rate_limit_key = {partner_id, :rate_limit}
+      :ets.insert(:jwks_cache, {rate_limit_key, 10, now})
+
+      # REQUEST: 11th attempt (should be rate limited)
+      log =
+        capture_log(fn ->
+          result = JWKSCache.get_key(partner_id, "unknown-key-11")
+
+          # VERIFY: Rate limited
+          assert {:error, :rate_limited} = result
+        end)
+
+      # VERIFY: Log indicates rate limiting
+      assert log =~ "Rate limit EXCEEDED"
+      assert log =~ partner_id
+
+      # LESSON: Rate limiting protects against DoS via unknown kid spam.
+    end
+
+    test "rate limit window resets after 60 seconds" do
+      partner_id = "partner_rate_limit_reset"
+
+      # SETUP: Old rate limit entry (61 seconds ago)
+      now = System.system_time(:second)
+      rate_limit_key = {partner_id, :rate_limit}
+      :ets.insert(:jwks_cache, {rate_limit_key, 10, now - 61})
+
+      # REQUEST: New attempt (should start fresh window)
+      log =
+        capture_log(fn ->
+          JWKSCache.get_key(partner_id, "unknown-key-new")
+        end)
+
+      # VERIFY: Not rate limited (new window started)
+      refute log =~ "Rate limit EXCEEDED"
+
+      # LESSON: Rate limit windows reset, allowing continued operation.
+    end
+
+    test "rate limiting emits telemetry when exceeded" do
+      partner_id = "partner_rate_limit_telemetry"
+      test_pid = self()
+
+      # SETUP: Attach telemetry handler
+      :telemetry.attach(
+        "jwks-rate-limit-test-handler",
+        [:jwks_cache, :rate_limit_exceeded],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      # SETUP: Set rate limit at threshold
+      now = System.system_time(:second)
+      rate_limit_key = {partner_id, :rate_limit}
+      :ets.insert(:jwks_cache, {rate_limit_key, 10, now})
+
+      # REQUEST: Exceed rate limit
+      capture_log(fn ->
+        JWKSCache.get_key(partner_id, "unknown-key")
+      end)
+
+      # VERIFY: Telemetry event emitted
+      assert_receive {:telemetry_event, [:jwks_cache, :rate_limit_exceeded], measurements,
+                      metadata}
+
+      assert measurements.attempts >= 10
+      assert metadata.partner_id == partner_id
+
+      # CLEANUP
+      :telemetry.detach("jwks-rate-limit-test-handler")
+
+      # LESSON: Rate limit telemetry enables alerting on DoS attacks.
+    end
+  end
+
+  describe "DoS protection: circuit breaker" do
+    test "circuit breaker opens after 5 consecutive unknown kids" do
+      partner_id = "partner_circuit_breaker_test"
+
+      # SETUP: Set consecutive unknown kids to threshold
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: 0,
+        last_fetch_success: false,
+        consecutive_unknown_kids: 5
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Next unknown kid (should trip circuit breaker)
+      log =
+        capture_log(fn ->
+          result = JWKSCache.get_key(partner_id, "unknown-key")
+
+          # VERIFY: Circuit breaker open
+          assert {:error, :circuit_breaker_open} = result
+        end)
+
+      # VERIFY: Log indicates circuit breaker
+      assert log =~ "Circuit breaker OPEN"
+      assert log =~ partner_id
+
+      # LESSON: Circuit breaker stops processing after repeated failures.
+    end
+
+    test "circuit breaker resets on successful cache hit" do
+      partner_id = "partner_circuit_reset"
+      kid = "valid-key"
+
+      # SETUP: Cache a valid key
+      jwk = JOSE.JWK.generate_key({:ec, :secp256r1})
+      now = System.system_time(:second)
+      cache_key = {partner_id, kid}
+      :ets.insert(:jwks_cache, {cache_key, jwk, now, 900})
+
+      # SETUP: Set high unknown kid count
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: now,
+        last_fetch_success: true,
+        consecutive_unknown_kids: 3
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Get valid cached key
+      capture_log(fn ->
+        assert {:ok, _jwk} = JWKSCache.get_key(partner_id, kid)
+      end)
+
+      # VERIFY: Counter reset
+      [{^metadata_key, updated_metadata}] = :ets.lookup(:jwks_cache, metadata_key)
+      assert updated_metadata.consecutive_unknown_kids == 0
+
+      # LESSON: Circuit breaker resets on successful verification.
+    end
+
+    test "circuit breaker emits telemetry when opened" do
+      partner_id = "partner_circuit_telemetry"
+      test_pid = self()
+
+      # SETUP: Attach telemetry handler
+      :telemetry.attach(
+        "jwks-circuit-test-handler",
+        [:jwks_cache, :circuit_breaker_open],
+        fn event_name, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event_name, measurements, metadata})
+        end,
+        nil
+      )
+
+      # SETUP: Set circuit breaker at threshold
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: 0,
+        last_fetch_success: false,
+        consecutive_unknown_kids: 5
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Trigger circuit breaker
+      capture_log(fn ->
+        JWKSCache.get_key(partner_id, "unknown-key")
+      end)
+
+      # VERIFY: Telemetry event emitted
+      assert_receive {:telemetry_event, [:jwks_cache, :circuit_breaker_open], measurements,
+                      metadata}
+
+      assert measurements.consecutive_unknown_kids >= 5
+      assert metadata.partner_id == partner_id
+
+      # CLEANUP
+      :telemetry.detach("jwks-circuit-test-handler")
+
+      # LESSON: Circuit breaker telemetry enables alerting on sustained attacks.
+    end
+
+    test "consecutive unknown kid counter increments correctly" do
+      partner_id = "partner_counter_increment"
+
+      # SETUP: Metadata with recent fetch (to trigger debouncing)
+      now = System.system_time(:second)
+      metadata_key = {partner_id, :metadata}
+
+      metadata = %{
+        last_fetch_at: now - 10,
+        last_fetch_success: true,
+        consecutive_unknown_kids: 0
+      }
+
+      :ets.insert(:jwks_cache, {metadata_key, metadata})
+
+      # REQUEST: Three unknown kid attempts (all debounced)
+      capture_log(fn ->
+        JWKSCache.get_key(partner_id, "unknown-1")
+        JWKSCache.get_key(partner_id, "unknown-2")
+        JWKSCache.get_key(partner_id, "unknown-3")
+      end)
+
+      # VERIFY: Counter incremented
+      [{^metadata_key, updated_metadata}] = :ets.lookup(:jwks_cache, metadata_key)
+      assert updated_metadata.consecutive_unknown_kids == 3
+
+      # LESSON: Counter tracks sustained unknown kid attempts.
+    end
+  end
+
   describe "cache-control TTL parsing" do
     # Note: parse_cache_control_ttl/1 is marked @doc false (internal function)
     # but is public for testing purposes

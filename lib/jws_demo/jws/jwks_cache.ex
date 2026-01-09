@@ -66,6 +66,12 @@ defmodule JwsDemo.JWS.JWKSCache do
   @table_name :jwks_cache
   # Demo mode: set to false in production to enable real JWKS fetching
   @demo_mode Application.compile_env(:jws_demo, :jwks_demo_mode, true)
+  # DoS protection: debounce window for unknown kid refreshes
+  @unknown_kid_debounce_seconds 60
+  # DoS protection: max unknown kid attempts per minute
+  @unknown_kid_rate_limit 10
+  # DoS protection: circuit breaker threshold
+  @circuit_breaker_threshold 5
 
   # Client API
 
@@ -208,6 +214,8 @@ defmodule JwsDemo.JWS.JWKSCache do
           # Fresh cache: return immediately
           age < ttl ->
             Logger.debug("JWKS cache HIT (fresh): #{partner_id}/#{kid}, age: #{age}s")
+            # Reset consecutive unknown kids counter on successful cache hit
+            reset_unknown_kid_counter(partner_id)
             {:reply, {:ok, jwk}, state}
 
           # Stale but within grace period: return stale + trigger refresh
@@ -222,18 +230,21 @@ defmodule JwsDemo.JWS.JWKSCache do
             # Trigger background refresh (don't block)
             GenServer.cast(self(), {:refresh, partner_id})
 
+            # Reset consecutive unknown kids counter
+            reset_unknown_kid_counter(partner_id)
+
             {:reply, {:ok, jwk}, state}
 
           # Too stale: force refresh
           true ->
             Logger.warning("JWKS cache MISS (too stale): #{partner_id}/#{kid}, age: #{age}s")
-            handle_cache_miss(partner_id, kid, state)
+            handle_cache_miss_with_protection(partner_id, kid, state)
         end
 
       [] ->
-        # Not in cache: fetch from JWKS endpoint
-        Logger.info("JWKS cache MISS: #{partner_id}/#{kid}")
-        handle_cache_miss(partner_id, kid, state)
+        # Not in cache: unknown kid - apply DoS protection
+        Logger.info("JWKS cache MISS (unknown kid): #{partner_id}/#{kid}")
+        handle_cache_miss_with_protection(partner_id, kid, state)
     end
   end
 
@@ -302,16 +313,80 @@ defmodule JwsDemo.JWS.JWKSCache do
 
   # Private functions
 
-  # Handle cache miss by fetching JWKS
-  defp handle_cache_miss(partner_id, kid, state) do
-    case fetch_and_cache_jwks(partner_id) do
+  # Handle cache miss with DoS protection for unknown kid
+  defp handle_cache_miss_with_protection(partner_id, kid, state) do
+    now = System.system_time(:second)
+
+    # Check 1: Circuit breaker (too many consecutive unknown kids)
+    case check_circuit_breaker(partner_id) do
+      {:error, :circuit_breaker_open} = error ->
+        Logger.error(
+          "Circuit breaker OPEN for #{partner_id}: Too many consecutive unknown kids. " <>
+            "Rejecting request for kid: #{kid}"
+        )
+
+        {:reply, error, state}
+
+      :ok ->
+        # Check 2: Rate limiting (too many unknown kid attempts per minute)
+        case check_unknown_kid_rate_limit(partner_id, now) do
+          {:error, :rate_limited} = error ->
+            Logger.error(
+              "Rate limit EXCEEDED for #{partner_id}: Too many unknown kid attempts. " <>
+                "Rejecting request for kid: #{kid}"
+            )
+
+            {:reply, error, state}
+
+          :ok ->
+            # Check 3: Debouncing (did we recently fetch JWKS for this partner?)
+            case check_recent_fetch(partner_id, now) do
+              {:debounced, age} ->
+                # We fetched JWKS recently but kid still not found
+                Logger.warning(
+                  "Unknown kid #{kid} for #{partner_id}, but JWKS fetched #{age}s ago. " <>
+                    "Kid truly doesn't exist. Possible attack or misconfiguration."
+                )
+
+                # Emit telemetry for attack detection
+                :telemetry.execute(
+                  [:jwks_cache, :unknown_kid_rejected],
+                  %{age_since_fetch: age},
+                  %{partner_id: partner_id, kid: kid}
+                )
+
+                # Increment unknown kid counter (for circuit breaker)
+                increment_unknown_kid_counter(partner_id)
+
+                {:reply, {:error, :kid_not_found_in_jwks}, state}
+
+              :ok ->
+                # No recent fetch - safe to refresh
+                Logger.info(
+                  "Unknown kid #{kid} for #{partner_id}, fetching fresh JWKS (debounce check passed)"
+                )
+
+                handle_cache_miss(partner_id, kid, state, now)
+            end
+        end
+    end
+  end
+
+  # Handle cache miss by fetching JWKS (original logic, now with metadata update)
+  defp handle_cache_miss(partner_id, kid, state, now) do
+
+    case fetch_and_cache_jwks(partner_id, now) do
       :ok ->
         # Retry lookup after caching
         case :ets.lookup(@table_name, {partner_id, kid}) do
           [{_, jwk, _, _}] ->
+            # Success: reset unknown kid counter
+            reset_unknown_kid_counter(partner_id)
             {:reply, {:ok, jwk}, state}
 
           [] ->
+            # Kid still not found after fresh fetch
+            increment_unknown_kid_counter(partner_id)
             {:reply, {:error, :kid_not_found_in_jwks}, state}
         end
 
@@ -321,7 +396,9 @@ defmodule JwsDemo.JWS.JWKSCache do
   end
 
   # Fetch JWKS from partner endpoint and cache all keys
-  defp fetch_and_cache_jwks(partner_id) do
+  defp fetch_and_cache_jwks(partner_id, now \\ nil) do
+    now = now || System.system_time(:second)
+
     # Get partner's JWKS URL from config/database
     # For demo, use a mock JWKS URL
     case get_partner_jwks_url(partner_id) do
@@ -330,13 +407,22 @@ defmodule JwsDemo.JWS.JWKSCache do
           {:ok, jwks, ttl} ->
             # NOTE: In demo mode, fetch_jwks always returns error, so this branch is unreachable.
             # In production, this would cache the successfully fetched JWKS.
-            cache_jwks(partner_id, jwks, ttl)
+            result = cache_jwks(partner_id, jwks, ttl)
+
+            # Update metadata: successful fetch
+            update_partner_metadata(partner_id, now, true)
+
+            result
 
           {:error, reason} ->
+            # Update metadata: failed fetch
+            update_partner_metadata(partner_id, now, false)
             {:error, {:jwks_fetch_failed, reason}}
         end
 
       {:error, reason} ->
+        # Update metadata: failed fetch (partner not found)
+        update_partner_metadata(partner_id, now, false)
         {:error, {:partner_not_found, reason}}
     end
   end
@@ -549,5 +635,151 @@ defmodule JwsDemo.JWS.JWKSCache do
     unix_seconds
     |> DateTime.from_unix!()
     |> DateTime.to_iso8601()
+  end
+
+  # DoS Protection: Partner Metadata Management
+
+  # Check if we recently fetched JWKS for this partner (debouncing)
+  defp check_recent_fetch(partner_id, now) do
+    metadata_key = {partner_id, :metadata}
+
+    case :ets.lookup(@table_name, metadata_key) do
+      [{^metadata_key, metadata}] ->
+        age = now - metadata.last_fetch_at
+
+        if age < @unknown_kid_debounce_seconds do
+          {:debounced, age}
+        else
+          :ok
+        end
+
+      [] ->
+        :ok
+    end
+  end
+
+  # Check circuit breaker status (too many consecutive unknown kids)
+  defp check_circuit_breaker(partner_id) do
+    metadata_key = {partner_id, :metadata}
+
+    case :ets.lookup(@table_name, metadata_key) do
+      [{^metadata_key, metadata}] ->
+        if metadata.consecutive_unknown_kids >= @circuit_breaker_threshold do
+          # Emit telemetry for circuit breaker
+          :telemetry.execute(
+            [:jwks_cache, :circuit_breaker_open],
+            %{consecutive_unknown_kids: metadata.consecutive_unknown_kids},
+            %{partner_id: partner_id}
+          )
+
+          {:error, :circuit_breaker_open}
+        else
+          :ok
+        end
+
+      [] ->
+        :ok
+    end
+  end
+
+  # Check unknown kid rate limit
+  defp check_unknown_kid_rate_limit(partner_id, now) do
+    rate_limit_key = {partner_id, :rate_limit}
+    window = 60
+
+    case :ets.lookup(@table_name, rate_limit_key) do
+      [{^rate_limit_key, count, window_start}] when now - window_start < window ->
+        if count >= @unknown_kid_rate_limit do
+          # Emit telemetry for rate limit
+          :telemetry.execute(
+            [:jwks_cache, :rate_limit_exceeded],
+            %{attempts: count},
+            %{partner_id: partner_id}
+          )
+
+          {:error, :rate_limited}
+        else
+          # Increment counter
+          :ets.update_counter(@table_name, rate_limit_key, {2, 1})
+          :ok
+        end
+
+      _ ->
+        # Start new window
+        :ets.insert(@table_name, {rate_limit_key, 1, now})
+        :ok
+    end
+  end
+
+  # Update partner metadata after JWKS fetch
+  defp update_partner_metadata(partner_id, fetch_time, success) do
+    metadata_key = {partner_id, :metadata}
+
+    metadata =
+      case :ets.lookup(@table_name, metadata_key) do
+        [{^metadata_key, existing}] ->
+          %{
+            existing
+            | last_fetch_at: fetch_time,
+              last_fetch_success: success
+          }
+
+        [] ->
+          %{
+            last_fetch_at: fetch_time,
+            last_fetch_success: success,
+            consecutive_unknown_kids: 0
+          }
+      end
+
+    :ets.insert(@table_name, {metadata_key, metadata})
+  end
+
+  # Increment consecutive unknown kid counter
+  defp increment_unknown_kid_counter(partner_id) do
+    metadata_key = {partner_id, :metadata}
+
+    case :ets.lookup(@table_name, metadata_key) do
+      [{^metadata_key, metadata}] ->
+        new_count = metadata.consecutive_unknown_kids + 1
+
+        updated_metadata = %{metadata | consecutive_unknown_kids: new_count}
+        :ets.insert(@table_name, {metadata_key, updated_metadata})
+
+        # Emit telemetry for monitoring
+        :telemetry.execute(
+          [:jwks_cache, :unknown_kid_incremented],
+          %{consecutive_count: new_count},
+          %{partner_id: partner_id}
+        )
+
+      [] ->
+        # Create new metadata entry
+        metadata = %{
+          last_fetch_at: 0,
+          last_fetch_success: false,
+          consecutive_unknown_kids: 1
+        }
+
+        :ets.insert(@table_name, {metadata_key, metadata})
+    end
+  end
+
+  # Reset consecutive unknown kid counter
+  defp reset_unknown_kid_counter(partner_id) do
+    metadata_key = {partner_id, :metadata}
+
+    case :ets.lookup(@table_name, metadata_key) do
+      [{^metadata_key, metadata}] ->
+        if metadata.consecutive_unknown_kids > 0 do
+          updated_metadata = %{metadata | consecutive_unknown_kids: 0}
+          :ets.insert(@table_name, {metadata_key, updated_metadata})
+
+          Logger.debug("Reset unknown kid counter for #{partner_id}")
+        end
+
+      [] ->
+        :ok
+    end
   end
 end
