@@ -317,8 +317,16 @@ defmodule JwsDemo.JWS.JWKSCache do
   defp handle_cache_miss_with_protection(partner_id, kid, state) do
     now = System.system_time(:second)
 
-    # Check 1: Circuit breaker (too many consecutive unknown kids)
-    case check_circuit_breaker(partner_id) do
+    with :ok <- check_circuit_breaker(partner_id),
+         :ok <- check_unknown_kid_rate_limit(partner_id, now),
+         :ok <- check_recent_fetch(partner_id, now) do
+      # All checks passed - safe to fetch
+      Logger.info(
+        "Unknown kid #{kid} for #{partner_id}, fetching fresh JWKS (all protection checks passed)"
+      )
+
+      handle_cache_miss(partner_id, kid, state, now)
+    else
       {:error, :circuit_breaker_open} = error ->
         Logger.error(
           "Circuit breaker OPEN for #{partner_id}: Too many consecutive unknown kids. " <>
@@ -327,48 +335,32 @@ defmodule JwsDemo.JWS.JWKSCache do
 
         {:reply, error, state}
 
-      :ok ->
-        # Check 2: Rate limiting (too many unknown kid attempts per minute)
-        case check_unknown_kid_rate_limit(partner_id, now) do
-          {:error, :rate_limited} = error ->
-            Logger.error(
-              "Rate limit EXCEEDED for #{partner_id}: Too many unknown kid attempts. " <>
-                "Rejecting request for kid: #{kid}"
-            )
+      {:error, :rate_limited} = error ->
+        Logger.error(
+          "Rate limit EXCEEDED for #{partner_id}: Too many unknown kid attempts. " <>
+            "Rejecting request for kid: #{kid}"
+        )
 
-            {:reply, error, state}
+        {:reply, error, state}
 
-          :ok ->
-            # Check 3: Debouncing (did we recently fetch JWKS for this partner?)
-            case check_recent_fetch(partner_id, now) do
-              {:debounced, age} ->
-                # We fetched JWKS recently but kid still not found
-                Logger.warning(
-                  "Unknown kid #{kid} for #{partner_id}, but JWKS fetched #{age}s ago. " <>
-                    "Kid truly doesn't exist. Possible attack or misconfiguration."
-                )
+      {:debounced, age} ->
+        # We fetched JWKS recently but kid still not found
+        Logger.warning(
+          "Unknown kid #{kid} for #{partner_id}, but JWKS fetched #{age}s ago. " <>
+            "Kid truly doesn't exist. Possible attack or misconfiguration."
+        )
 
-                # Emit telemetry for attack detection
-                :telemetry.execute(
-                  [:jwks_cache, :unknown_kid_rejected],
-                  %{age_since_fetch: age},
-                  %{partner_id: partner_id, kid: kid}
-                )
+        # Emit telemetry for attack detection
+        :telemetry.execute(
+          [:jwks_cache, :unknown_kid_rejected],
+          %{age_since_fetch: age},
+          %{partner_id: partner_id, kid: kid}
+        )
 
-                # Increment unknown kid counter (for circuit breaker)
-                increment_unknown_kid_counter(partner_id)
+        # Increment unknown kid counter (for circuit breaker)
+        increment_unknown_kid_counter(partner_id)
 
-                {:reply, {:error, :kid_not_found_in_jwks}, state}
-
-              :ok ->
-                # No recent fetch - safe to refresh
-                Logger.info(
-                  "Unknown kid #{kid} for #{partner_id}, fetching fresh JWKS (debounce check passed)"
-                )
-
-                handle_cache_miss(partner_id, kid, state, now)
-            end
-        end
+        {:reply, {:error, :kid_not_found_in_jwks}, state}
     end
   end
 
