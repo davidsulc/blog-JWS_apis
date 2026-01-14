@@ -131,7 +131,7 @@ defmodule JwsDemoWeb.AuthorizationController do
 
     missing_fields =
       Enum.filter(required_fields, fn field ->
-        not Map.has_key?(payload, field) or is_nil(payload[field])
+        is_nil(Map.get(payload, field))
       end)
 
     case missing_fields do

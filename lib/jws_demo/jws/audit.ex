@@ -179,30 +179,40 @@ defmodule JwsDemo.JWS.Audit do
   """
   @spec re_verify(String.t()) :: {:ok, map()} | {:error, term()}
   def re_verify(instruction_id) do
+    with {:ok, audit_log} <- fetch_audit_log(instruction_id),
+         {:ok, verified_payload} <- verify_stored_jws(audit_log),
+         :ok <- check_payload_match(verified_payload, audit_log.payload, instruction_id) do
+      Logger.info("Re-verification successful: #{instruction_id}")
+      {:ok, verified_payload}
+    end
+  end
+
+  defp fetch_audit_log(instruction_id) do
     case Repo.get_by(AuditLog, instruction_id: instruction_id) do
-      nil ->
-        {:error, :audit_log_not_found}
+      nil -> {:error, :audit_log_not_found}
+      audit_log -> {:ok, audit_log}
+    end
+  end
 
-      audit_log ->
-        # Convert stored JWK map back to JOSE.JWK
-        partner_jwk = JOSE.JWK.from(audit_log.partner_public_key)
+  defp verify_stored_jws(audit_log) do
+    partner_jwk = JOSE.JWK.from(audit_log.partner_public_key)
 
-        # Verify using original JWS and stored key
-        case Verifier.verify(audit_log.jws_signature, partner_jwk) do
-          {:ok, verified_payload} ->
-            # Verify it matches stored payload
-            if payloads_match?(verified_payload, audit_log.payload) do
-              Logger.info("Re-verification successful: #{instruction_id}")
-              {:ok, verified_payload}
-            else
-              Logger.error("Re-verification payload mismatch: #{instruction_id}")
-              {:error, :payload_mismatch}
-            end
+    case Verifier.verify(audit_log.jws_signature, partner_jwk) do
+      {:ok, verified_payload} ->
+        {:ok, verified_payload}
 
-          {:error, reason} ->
-            Logger.error("Re-verification failed: #{instruction_id}, reason: #{inspect(reason)}")
-            {:error, {:verification_failed, reason}}
-        end
+      {:error, reason} ->
+        Logger.error("Re-verification failed: reason=#{inspect(reason)}")
+        {:error, {:verification_failed, reason}}
+    end
+  end
+
+  defp check_payload_match(verified_payload, stored_payload, instruction_id) do
+    if payloads_match?(verified_payload, stored_payload) do
+      :ok
+    else
+      Logger.error("Re-verification payload mismatch: #{instruction_id}")
+      {:error, :payload_mismatch}
     end
   end
 
