@@ -162,25 +162,27 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
     end
   end
 
-  defp decode_kid_from_header(header_b64) when not is_binary(header_b64) do
+  defp decode_kid_from_header(_header_b64) do
     {:error, {:invalid_jws, "JWS header must be a string"}}
   end
 
   defp decode_jws_header(header) when is_binary(header) do
-    with :error <- Base.url_decode64(header, padding: false) do
-      {:error, {:invalid_jws, "Failed to decode JWS header"}}
+    case Base.url_decode64(header, padding: false) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, {:invalid_jws, "Failed to decode JWS header"}}
     end
   end
 
   defp parse_json(json) do
-    with {:error, _} <- Jason.decode(json) do
-      {:error, {:invalid_jws, "Failed to parse JWS header"}}
+    case Jason.decode(json) do
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, _} -> {:error, {:invalid_jws, "Failed to parse JWS header"}}
     end
   end
 
   defp fetch_kid(%{"kid" => kid}) when is_binary(kid), do: {:ok, kid}
 
-  defp fetch_kid(%{"kid" => kid}) when not is_binary(kid),
+  defp fetch_kid(%{"kid" => _kid}),
     do: {:error, {:invalid_kid, "kid must be a string"}}
 
   defp fetch_kid(%{}), do: {:error, {:missing_kid, "JWS header must include 'kid' (Key ID)"}}
@@ -216,8 +218,9 @@ defmodule JwsDemoWeb.VerifyJWSPlug do
       clock_skew_seconds: Keyword.get(opts, :clock_skew_seconds, @clock_skew_seconds)
     ]
 
-    with {:error, reason} <- Verifier.verify(jws, jwk, verifier_opts) do
-      {:error, {:verification_failed, reason}}
+    case Verifier.verify(jws, jwk, verifier_opts) do
+      {:ok, payload} -> {:ok, payload}
+      {:error, reason} -> {:error, {:verification_failed, reason}}
     end
   end
 
