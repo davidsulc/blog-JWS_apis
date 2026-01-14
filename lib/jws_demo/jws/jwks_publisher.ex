@@ -202,7 +202,7 @@ defmodule JwsDemo.JWS.JWKSPublisher do
   # Convert JOSE.JWK to JWKS entry format
   defp jwk_to_jwks_entry(jwk, kid) do
     # Convert JWK to map
-    jwk_map = JOSE.JWK.to_map(jwk) |> elem(1)
+    {_kty, jwk_map} = JOSE.JWK.to_map(jwk)
 
     # Build JWKS entry with standard fields
     %{
