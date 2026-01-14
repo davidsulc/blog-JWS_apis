@@ -310,34 +310,51 @@ defmodule JwsDemo.Partners.Client do
   end
 
   defp verify_partner_jws(jws, partner_id) do
-    # Extract kid from JWS header using JOSE library
+    with {:ok, kid} <- extract_kid_from_jws(jws),
+         {:ok, partner_jwk} <- fetch_partner_key(partner_id, kid),
+         {:ok, verified_payload} <- verify_response_signature(jws, partner_jwk, partner_id, kid) do
+      {:ok, %{verified_payload: verified_payload, kid: kid}}
+    end
+  end
+
+  defp extract_kid_from_jws(jws) do
     case JOSE.JWS.peek_protected(jws) do
       {%{"kid" => kid}, _jws} ->
-        # Fetch partner's public key and verify signature
-        case JWKSCache.get_key(partner_id, kid) do
-          {:ok, partner_jwk} ->
-            case Verifier.verify(jws, partner_jwk) do
-              {:ok, verified_payload} ->
-                Logger.info("Partner response signature verified: partner_id=#{partner_id}, kid=#{kid}")
-                {:ok, %{verified_payload: verified_payload, kid: kid}}
-
-              {:error, reason} ->
-                Logger.error("Partner response signature verification failed: #{inspect(reason)}")
-                {:error, {:verification_failed, reason}}
-            end
-
-          {:error, reason} ->
-            Logger.error("Failed to fetch partner key: partner_id=#{partner_id}, kid=#{kid}, reason=#{inspect(reason)}")
-            {:error, {:key_fetch_failed, reason}}
-        end
+        {:ok, kid}
 
       {%{}, _jws} ->
         Logger.error("Partner response missing kid in JWS header")
         {:error, :missing_kid}
 
-      error ->
-        Logger.error("Failed to peek JWS header: #{inspect(error)}")
+      _error ->
+        Logger.error("Failed to peek JWS header")
         {:error, :invalid_jws_format}
+    end
+  end
+
+  defp fetch_partner_key(partner_id, kid) do
+    case JWKSCache.get_key(partner_id, kid) do
+      {:ok, partner_jwk} ->
+        {:ok, partner_jwk}
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to fetch partner key: partner_id=#{partner_id}, kid=#{kid}, reason=#{inspect(reason)}"
+        )
+
+        {:error, {:key_fetch_failed, reason}}
+    end
+  end
+
+  defp verify_response_signature(jws, partner_jwk, partner_id, kid) do
+    case Verifier.verify(jws, partner_jwk) do
+      {:ok, verified_payload} ->
+        Logger.info("Partner response signature verified: partner_id=#{partner_id}, kid=#{kid}")
+        {:ok, verified_payload}
+
+      {:error, reason} ->
+        Logger.error("Partner response signature verification failed: #{inspect(reason)}")
+        {:error, {:verification_failed, reason}}
     end
   end
 

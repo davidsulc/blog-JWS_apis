@@ -72,11 +72,14 @@ defmodule JwsDemoWeb.RateLimitPlug do
 
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(429, Jason.encode!(%{
-          error: "rate_limit_exceeded",
-          message: "Too many requests. Please try again later.",
-          retry_after: opts.window_seconds
-        }))
+        |> send_resp(
+          429,
+          Jason.encode!(%{
+            error: "rate_limit_exceeded",
+            message: "Too many requests. Please try again later.",
+            retry_after: opts.window_seconds
+          })
+        )
         |> halt()
     end
   end

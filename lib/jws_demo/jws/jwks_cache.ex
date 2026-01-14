@@ -366,7 +366,6 @@ defmodule JwsDemo.JWS.JWKSCache do
 
   # Handle cache miss by fetching JWKS (original logic, now with metadata update)
   defp handle_cache_miss(partner_id, kid, state, now) do
-
     case fetch_and_cache_jwks(partner_id, now) do
       :ok ->
         # Retry lookup after caching
@@ -502,7 +501,7 @@ defmodule JwsDemo.JWS.JWKSCache do
   @doc false
   def parse_cache_control_ttl(headers) do
     with {:ok, cache_control} <- find_cache_control_header(headers),
-        {:ok, ttl} <- parse_max_age(cache_control) do
+         {:ok, ttl} <- parse_max_age(cache_control) do
       {:ok, ttl}
     else
       _ -> {:error, :no_valid_ttl}
@@ -534,7 +533,7 @@ defmodule JwsDemo.JWS.JWKSCache do
       cache_control
       |> String.split(",", trim: true)
       # |> Enum.find(&Regex.match?(~r/^\s*max-age=/i, &1))
-      |> Enum.find(& &1 |> String.trim_leading() |> String.starts_with?("max-age="))
+      |> Enum.find(&(&1 |> String.trim_leading() |> String.starts_with?("max-age=")))
 
     case directive do
       nil -> {:error, :not_found}

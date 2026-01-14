@@ -88,39 +88,39 @@ defmodule JwsDemoWeb.PartnerWebhookController do
 
   """
   def receive_webhook(conn, params) do
-    # STEP 1: Extract JWS from request body
-    case extract_jws(params) do
-      {:ok, jws} ->
-        # STEP 2: Fetch our public key (simulating partner fetching from our JWKS)
-        # In production, partner would HTTP GET from our /.well-known/jwks.json
-        case get_our_public_key() do
-          {:ok, public_key} ->
-            # STEP 3: Verify signature
-            case Verifier.verify(jws, public_key) do
-              {:ok, verified_payload} ->
-                Logger.info("Partner verified our webhook: event=#{verified_payload["event"]}")
-
-                handle_verified_webhook(conn, verified_payload)
-
-              {:error, reason} ->
-                Logger.warning("Partner rejected our webhook: #{inspect(reason)}")
-                handle_verification_error(conn, reason)
-            end
-
-          {:error, reason} ->
-            Logger.error("Partner failed to fetch our public key: #{inspect(reason)}")
-
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "key_fetch_failed", message: "Could not fetch signing key"})
-        end
-
-      {:error, reason} ->
-        Logger.warning("Partner received invalid JWS: #{inspect(reason)}")
+    with {:ok, jws} <- extract_jws(params),
+         {:ok, public_key} <- get_our_public_key(),
+         {:ok, verified_payload} <- verify_webhook_signature(jws, public_key) do
+      handle_verified_webhook(conn, verified_payload)
+    else
+      {:error, :invalid_format} ->
+        Logger.warning("Partner received invalid JWS format")
 
         conn
         |> put_status(:bad_request)
         |> json(%{error: "invalid_jws", message: "Invalid JWS format"})
+
+      {:error, {:key_not_found, reason}} ->
+        Logger.error("Partner failed to fetch our public key: #{inspect(reason)}")
+
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "key_fetch_failed", message: "Could not fetch signing key"})
+
+      {:error, reason} ->
+        handle_verification_error(conn, reason)
+    end
+  end
+
+  defp verify_webhook_signature(jws, public_key) do
+    case Verifier.verify(jws, public_key) do
+      {:ok, verified_payload} ->
+        Logger.info("Partner verified our webhook: event=#{verified_payload["event"]}")
+        {:ok, verified_payload}
+
+      {:error, reason} ->
+        Logger.warning("Partner rejected our webhook: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
